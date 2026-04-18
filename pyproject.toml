@@ -18,4 +18,4 @@ bh = "run:main"
 browser-harness = "run:main"
 
 [tool.setuptools]
-py-modules = ["run", "helpers", "daemon"]
+py-modules = ["run", "helpers", "daemon", "admin", "common"]

@@ -82,8 +82,8 @@ If that fails with a stale websocket or stale socket, restart the daemon once an
 
 ```bash
 uv run python - <<'PY'
-from helpers import kill_daemon
-kill_daemon()
+from admin import restart_daemon
+restart_daemon()
 PY
 ```
 

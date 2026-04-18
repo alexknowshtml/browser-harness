@@ -26,13 +26,18 @@ Undetectable by antibot — no JS injected into the page.
 Prevents dialogs from ever appearing. Good when you expect multiple `alert()`/`confirm()` calls in sequence.
 
 ```python
-capture_dialogs()       # replaces window.alert/confirm/prompt with stubs
+js("""
+window.__dialogs__=[];
+window.alert=m=>window.__dialogs__.push(String(m));
+window.confirm=m=>{window.__dialogs__.push(String(m));return true;};
+window.prompt=(m,d)=>{window.__dialogs__.push(String(m));return d||'';};
+""")
 # ... do actions that trigger dialogs ...
-msgs = dialogs()        # read captured messages
+msgs = js("window.__dialogs__||[]")
 ```
 
 Tradeoffs:
-- Stubs are lost on page navigation — must re-call `capture_dialogs()`
+- Stubs are lost on page navigation -- must re-run the snippet
 - `confirm()` always returns `true` (auto-approves)
 - Detectable by antibot (`window.alert.toString()` reveals non-native code)
 - Does NOT handle `beforeunload`

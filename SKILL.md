@@ -36,6 +36,7 @@ PY
 ```
 
 `run.py` calls `ensure_daemon()` before `exec` — you never start/stop manually unless you want to.
+
 ### Remote browsers
 
 Remote is optional. Use it for parallel agents, sub-agents, or deployment.
@@ -46,7 +47,7 @@ Run this from the repo root:
 
 ```bash
 uv run python - <<'PY'
-from helpers import start_remote_daemon
+from admin import start_remote_daemon
 print(start_remote_daemon("work"))
 PY
 BU_NAME=work uv run bh <<'PY'
@@ -98,7 +99,7 @@ If you solve a specific website and learn a lot, create a PR to this repo with r
 - **Connect to the user's running Chrome.** Don't launch your own browser.
 - **`cdp-use` is only for `CDPClient.send_raw`.** Prefer raw CDP strings over typed wrappers.
 - **`run.py` stays tiny.** No argparse, subcommands, or extra control layer.
-- **Helpers stay short.** No classes, no extra deps beyond stdlib + `cdp-use` + `websockets`.
+- **Helpers stay short.** Browser primitives in `helpers.py`; daemon/bootstrap and remote session admin live in `admin.py`.
 - **Don't add a manager layer.** No retries framework, session manager, daemon supervisor, config system, or logging framework.
 
 ## Architecture
@@ -125,8 +126,7 @@ Chrome / Browser Use cloud -> CDP WS -> daemon.py -> /tmp/bu-<NAME>.sock -> run.
 - **Omnibox popups are fake `page` targets.** Filter `chrome://omnibox-popup...` and other internals when you need a real tab.
 - **CDP target order != Chrome's visible tab-strip order.** Use UI automation when the user means "the first/second tab I can see"; `Target.activateTarget` only shows a known target.
 - **Default daemon sessions can go stale.** `ensure_real_tab()` re-attaches to a real page.
-- **`no close frame received or sent` usually means a stale daemon / websocket.** Kill the daemon once and retry before assuming setup is wrong.
-- **Keep the two `INTERNAL` tuples in sync.** `daemon.py` and `helpers.py` each define one.
+- **`no close frame received or sent` usually means a stale daemon / websocket.** Restart the daemon once via `admin.restart_daemon()` before assuming setup is wrong.
 - **Browser Use API is camelCase on the wire.** `cdpUrl`, `proxyCountryCode`, etc.
 - **Remote `cdpUrl` is HTTPS, not ws.** Resolve the websocket URL via `/json/version`.
 - **Stop cloud browsers with `PATCH /browsers/{id}` + `{\"action\":\"stop\"}`.**
@@ -134,8 +134,8 @@ Chrome / Browser Use cloud -> CDP WS -> daemon.py -> /tmp/bu-<NAME>.sock -> run.
   `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,v); el.dispatchEvent(new Event('input',{bubbles:true}))`.
 - **Radio/checkbox via React**: prefer `el.click()` over `el.checked=true` — React listens to the click event to drive state.
 - **UI-library buttons (MUI Select, dropdown overlays)**: JS `.click()` on `[role=button]` often does NOT fire the library's handler. Screenshot → `click(x,y)` via CDP instead.
-- **Keyboard listeners checking `e.key==='Enter'` on `keypress`**: CDP's `char` event doesn't always fire DOM `keypress` for special keys. Use `dispatch_key(selector, 'Enter')`.
-- **`alert()`/`confirm()` block the page thread.** Call `capture_dialogs()` BEFORE the action, read via `dialogs()` after.
+- **Keyboard listeners checking `e.key==='Enter'` on `keypress`**: prefer `press_key('Enter')`. If a site only reacts to a synthetic DOM `KeyboardEvent`, inject the narrow workaround inline with `js(...)` for that site instead of adding another global helper.
+- **`alert()`/`confirm()` block the page thread.** Prefer `Page.handleJavaScriptDialog` plus `drain_events()`; see `interaction-skills/dialogs.md`.
 - **Same-origin nested iframes** don't show up as CDP targets — walk `document.querySelector('iframe').contentDocument` (or `contentWindow`) recursively. Cross-origin iframes DO appear as targets; use `iframe_target("...")`.
 - **Shadow DOM**: `document.querySelector` doesn't pierce shadow roots. Walk via `element.shadowRoot.querySelectorAll` (and recurse).
 - **Submitting forms**: the "Submit" button isn't always the first `button[type=submit]` — on React Native Web etc. contact-method buttons share that type. Prefer the button whose text matches `/submit/i`, fall back to `form.requestSubmit()`.

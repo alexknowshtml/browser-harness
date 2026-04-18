@@ -1,23 +1,12 @@
-"""Browser control via CDP. Read, edit, extend — this file is yours."""
+"""Browser control via CDP. Read, edit, extend -- this file is yours."""
 import base64, json, os, socket, time, urllib.request
-from pathlib import Path
 
+from common import INTERNAL, load_env
 
-def _load_env():
-    p = Path(__file__).parent / ".env"
-    if not p.exists(): return
-    for line in p.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line: continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
-_load_env()
+load_env()
 
 NAME = os.environ.get("BU_NAME", "default")
 SOCK = f"/tmp/bu-{NAME}.sock"
-PID = f"/tmp/bu-{NAME}.pid"
-INTERNAL = ("chrome://", "chrome-untrusted://", "devtools://", "chrome-extension://", "about:")
-BU_API = "https://api.browser-use.com/api/v3"
 
 
 def _send(req):
@@ -41,87 +30,6 @@ def cdp(method, session_id=None, **params):
 
 
 def drain_events():  return _send({"meta": "drain_events"})["events"]
-def get_session():   return _send({"meta": "session"})["session_id"]
-def set_session(s):  return _send({"meta": "set_session", "session_id": s})
-def shutdown():      return _send({"meta": "shutdown"})
-
-
-# --- daemon lifecycle (socket IS the lock; one per BU_NAME) ---
-def _paths(name): n = name or NAME; return f"/tmp/bu-{n}.sock", f"/tmp/bu-{n}.pid"
-def _log_tail(name):
-    p = f"/tmp/bu-{name or NAME}.log"
-    try: return Path(p).read_text().strip().splitlines()[-1]
-    except (FileNotFoundError, IndexError): return None
-
-def daemon_alive(name=None):
-    try:
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(1)
-        s.connect(_paths(name)[0]); s.close(); return True
-    except (FileNotFoundError, ConnectionRefusedError, socket.timeout):
-        return False
-
-def ensure_daemon(wait=60.0, name=None, env=None):
-    """Idempotent. `env` is merged into the child process env."""
-    if daemon_alive(name): return
-    import subprocess
-    e = {**os.environ, **({"BU_NAME": name} if name else {}), **(env or {})}
-    p = subprocess.Popen(["uv", "run", "daemon.py"], cwd=os.path.dirname(os.path.abspath(__file__)),
-                         env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    deadline = time.time() + wait
-    while time.time() < deadline:
-        if daemon_alive(name): return
-        if p.poll() is not None: break
-        time.sleep(0.2)
-    msg = _log_tail(name)
-    raise RuntimeError(msg or f"daemon {name or NAME} didn't come up — check /tmp/bu-{name or NAME}.log")
-
-def kill_daemon(name=None):
-    """Graceful shutdown, wait up to 15s for finally-block cleanup (remote stop), then SIGTERM."""
-    import signal
-    sock, pid_path = _paths(name)
-    try:
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(5)
-        s.connect(sock); s.sendall(b'{"meta":"shutdown"}\n'); s.recv(1024); s.close()
-    except Exception: pass
-    try: pid = int(open(pid_path).read())
-    except (FileNotFoundError, ValueError): pid = None
-    if pid:
-        for _ in range(75):
-            try: os.kill(pid, 0); time.sleep(0.2)
-            except ProcessLookupError: break
-        else:
-            try: os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError: pass
-    for f in (sock, pid_path):
-        try: os.unlink(f)
-        except FileNotFoundError: pass
-
-
-# --- Browser Use cloud (remote browsers) ---
-# https://docs.browser-use.com/cloud/api-v3/browsers/create-browser-session
-def _bu(path, method, body=None):
-    k = os.environ.get("BROWSER_USE_API_KEY")
-    if not k: raise RuntimeError("BROWSER_USE_API_KEY missing — see .env.example")
-    req = urllib.request.Request(f"{BU_API}{path}", method=method,
-        data=(json.dumps(body).encode() if body is not None else None),
-        headers={"X-Browser-Use-API-Key": k, "Content-Type": "application/json"})
-    return json.loads(urllib.request.urlopen(req, timeout=60).read() or b"{}")
-
-def browser_use_create(**params):
-    return _bu("/browsers", "POST", params)
-
-def browser_use_stop(browser_id):
-    return _bu(f"/browsers/{browser_id}", "PATCH", {"action": "stop"})
-
-def cdp_ws_from_url(cdp_url):
-    return json.loads(urllib.request.urlopen(f"{cdp_url}/json/version", timeout=15).read())["webSocketDebuggerUrl"]
-
-def start_remote_daemon(name="remote", **create_kwargs):
-    if daemon_alive(name): raise RuntimeError(f"daemon {name!r} already alive — kill_daemon({name!r}) first")
-    b = browser_use_create(**create_kwargs)
-    ensure_daemon(name=name, env={"BU_CDP_WS": cdp_ws_from_url(b["cdpUrl"]),
-                                  "BU_BROWSER_ID": b["id"]})
-    return b
 
 
 # --- navigation / page ---
@@ -190,7 +98,7 @@ def current_tab():
 def switch_tab(target_id):
     cdp("Target.activateTarget", targetId=target_id)
     sid = cdp("Target.attachToTarget", targetId=target_id, flatten=True)["sessionId"]
-    set_session(sid)
+    _send({"meta": "set_session", "session_id": sid})
     return sid
 
 def new_tab(url="about:blank"):
@@ -238,29 +146,12 @@ def js(expression, target_id=None):
     r = cdp("Runtime.evaluate", session_id=sid, expression=expression, returnByValue=True, awaitPromise=True)
     return r.get("result", {}).get("value")
 
-_KC = {"Enter":13,"Tab":9,"Escape":27,"Backspace":8," ":32,"ArrowLeft":37,"ArrowUp":38,"ArrowRight":39,"ArrowDown":40}
-def dispatch_key(selector, key="Enter", event="keypress"):
-    """Dispatch a DOM KeyboardEvent on the matched element. Use when CDP's press_key doesn't trigger DOM listeners — e.g. `keypress` for Enter on <input type=search> (CDP's `char` event quirk for special keys)."""
-    kc = _KC.get(key, ord(key) if len(key) == 1 else 0)
-    js(f"(()=>{{const e=document.querySelector({json.dumps(selector)});if(e){{e.focus();e.dispatchEvent(new KeyboardEvent({json.dumps(event)},{{key:{json.dumps(key)},code:{json.dumps(key)},keyCode:{kc},which:{kc},bubbles:true}}));}}}})()")
-
-
 def upload_file(selector, path):
     """Set files on a file input via CDP DOM.setFileInputFiles. `path` is an absolute filepath (use tempfile.mkstemp if needed)."""
     doc = cdp("DOM.getDocument", depth=-1)
     nid = cdp("DOM.querySelector", nodeId=doc["root"]["nodeId"], selector=selector)["nodeId"]
     if not nid: raise RuntimeError(f"no element for {selector}")
     cdp("DOM.setFileInputFiles", files=[path] if isinstance(path, str) else list(path), nodeId=nid)
-
-
-def capture_dialogs():
-    """Stub window.alert/confirm/prompt so messages stash in window.__dialogs__. Call BEFORE the action that triggers the dialog; read with dialogs()."""
-    js("window.__dialogs__=[];window.alert=m=>window.__dialogs__.push(String(m));window.confirm=m=>{window.__dialogs__.push(String(m));return true;};window.prompt=(m,d)=>{window.__dialogs__.push(String(m));return d||'';}")
-
-def dialogs():
-    """Return list of captured dialog messages since last capture_dialogs()."""
-    return json.loads(js("JSON.stringify(window.__dialogs__||[])") or "[]")
-
 
 def http_get(url, headers=None, timeout=20.0):
     """Pure HTTP — no browser. Use for static pages / APIs. Wrap in ThreadPoolExecutor for bulk."""

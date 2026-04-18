@@ -31,7 +31,8 @@ See [domain-skills/](domain-skills/) for examples on other websites.
 - `install.md` explains first-time install and browser bootstrap.
 - `SKILL.md` explains day-to-day browser harness usage.
 - `run.py` (~4 lines) executes plain Python with helpers preloaded.
-- `helpers.py` (~260 lines) holds the primitives the agent calls and constantly modifies to sharpen its own harness.
+- `helpers.py` holds the browser primitives the agent calls and sharpens over time.
+- `admin.py` holds daemon bootstrap and optional remote-browser admin helpers.
 - `daemon.py` (~200 lines) keeps the CDP websocket and socket bridge alive.
 
 
