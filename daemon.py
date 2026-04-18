@@ -139,12 +139,16 @@ class Daemon:
             raise RuntimeError(f"CDP WS handshake failed: {e} -- click Allow in Chrome if prompted, then retry")
         await self.attach_first_page()
         orig = self.cdp._event_registry.handle_event
+        mark_js = "if(!document.title.startsWith('\U0001F7E2'))document.title='\U0001F7E2 '+document.title"
         async def tap(method, params, session_id=None):
             self.events.append({"method": method, "params": params, "session_id": session_id})
             if method == "Page.javascriptDialogOpening":
                 self.dialog = params
             elif method == "Page.javascriptDialogClosed":
                 self.dialog = None
+            elif method in ("Page.loadEventFired", "Page.domContentEventFired"):
+                try: await asyncio.wait_for(self.cdp.send_raw("Runtime.evaluate", {"expression": mark_js}, session_id=self.session), timeout=2)
+                except Exception: pass
             return await orig(method, params, session_id)
         self.cdp._event_registry.handle_event = tap
 
@@ -154,7 +158,13 @@ class Daemon:
             out = list(self.events); self.events.clear()
             return {"events": out}
         if meta == "session":     return {"session_id": self.session}
-        if meta == "set_session": self.session = req.get("session_id"); return {"session_id": self.session}
+        if meta == "set_session":
+            self.session = req.get("session_id")
+            try:
+                await asyncio.wait_for(self.cdp.send_raw("Page.enable", session_id=self.session), timeout=3)
+                await asyncio.wait_for(self.cdp.send_raw("Runtime.evaluate", {"expression": "if(!document.title.startsWith('\U0001F7E2'))document.title='\U0001F7E2 '+document.title"}, session_id=self.session), timeout=2)
+            except Exception: pass
+            return {"session_id": self.session}
         if meta == "pending_dialog": return {"dialog": self.dialog}
         if meta == "shutdown":    self.stop.set(); return {"ok": True}
 
