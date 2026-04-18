@@ -48,6 +48,10 @@ def shutdown():      return _send({"meta": "shutdown"})
 
 # --- daemon lifecycle (socket IS the lock; one per BU_NAME) ---
 def _paths(name): n = name or NAME; return f"/tmp/bu-{n}.sock", f"/tmp/bu-{n}.pid"
+def _log_tail(name):
+    p = f"/tmp/bu-{name or NAME}.log"
+    try: return Path(p).read_text().strip().splitlines()[-1]
+    except (FileNotFoundError, IndexError): return None
 
 def daemon_alive(name=None):
     try:
@@ -61,13 +65,15 @@ def ensure_daemon(wait=60.0, name=None, env=None):
     if daemon_alive(name): return
     import subprocess
     e = {**os.environ, **({"BU_NAME": name} if name else {}), **(env or {})}
-    subprocess.Popen(["uv", "run", "daemon.py"], cwd=os.path.dirname(os.path.abspath(__file__)),
-                     env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    p = subprocess.Popen(["uv", "run", "daemon.py"], cwd=os.path.dirname(os.path.abspath(__file__)),
+                         env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     deadline = time.time() + wait
     while time.time() < deadline:
         if daemon_alive(name): return
+        if p.poll() is not None: break
         time.sleep(0.2)
-    raise RuntimeError(f"daemon {name or NAME} didn't come up — check /tmp/bu-{name or NAME}.log")
+    msg = _log_tail(name)
+    raise RuntimeError(msg or f"daemon {name or NAME} didn't come up — check /tmp/bu-{name or NAME}.log")
 
 def kill_daemon(name=None):
     """Graceful shutdown, wait up to 15s for finally-block cleanup (remote stop), then SIGTERM."""

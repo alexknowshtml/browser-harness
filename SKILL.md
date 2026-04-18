@@ -1,10 +1,10 @@
 ---
-name: bu
+name: harnessless
 description: Direct browser control via CDP. Use when the user wants to automate, scrape, test, or interact with web pages. Connects to the user's already-running Chrome.
 allowed-tools: Bash, Read, Edit, Write
 ---
 
-# bu
+# harnessless
 
 Available interaction skills:
 - `cookies.md`
@@ -31,7 +31,7 @@ Available domain skills:
 ## Tool call shape
 
 ```bash
-bu <<'PY'
+harnessless <<'PY'
 # any python. helpers pre-imported. daemon auto-starts.
 PY
 ```
@@ -42,27 +42,41 @@ PY
 
 ### Best everyday setup
 
-Clone the repo once, then install it as an editable tool so `bu` works from any directory:
+Clone the repo once, then install it as an editable tool so `harnessless` works from any directory:
 
 ```bash
 git clone https://github.com/browser-use/harnessless
 cd harnessless
 uv tool install -e .
+command -v harnessless
 ```
 
-That keeps the command global while still pointing at the real repo checkout, so when the agent edits `helpers.py` the next `bu` run uses the new code immediately.
+That keeps the command global while still pointing at the real repo checkout, so when the agent edits `helpers.py` the next `harnessless` run uses the new code immediately.
 
 ### Simplest local setup
 
 1. Run `uv sync`.
-2. If Chrome is closed, open it first.
-3. Open `chrome://inspect/#remote-debugging`.
-   On macOS: `open -a "Google Chrome" "chrome://inspect/#remote-debugging"`
-4. Tell the user to tick the remote-debugging checkbox and click Chrome's "Allow" button if it appears.
+2. Open Chrome to `chrome://inspect/#remote-debugging`.
+   On macOS: `uv run harnessless-open-debugging`
+   On Linux: open Chrome manually, then open that URL.
+3. Tell the user to tick the remote-debugging checkbox and click Chrome's "Allow" button if it appears.
+4. If setup hangs on the first connect, stop and wait for the user to click `Allow`, then retry once.
 5. Verify with:
 
 ```bash
-bu <<'PY'
+uv run harnessless-check
+```
+
+After editable install, the same check works from anywhere:
+
+```bash
+harnessless-check
+```
+
+Run browser code with:
+
+```bash
+uv run harnessless <<'PY'
 ensure_real_tab()
 print(page_info())
 PY
@@ -71,21 +85,27 @@ PY
 If that fails with a stale websocket or stale socket, restart the daemon once and retry:
 
 ```bash
-uv run python - <<'PY'
-from helpers import kill_daemon
-kill_daemon()
-PY
+uv run harnessless-kill
 ```
 
 ### Remote browsers
 
 Remote is optional. Use it for parallel agents, sub-agents, or deployment.
 
-Create `.env` from `.env.example` and set `BROWSER_USE_API_KEY`, then:
+If `BROWSER_USE_API_KEY` is already present in `.env` or the environment, start a remote daemon with:
 
 ```bash
-uv run python -c "from helpers import start_remote_daemon; print(start_remote_daemon('work'))"
-BU_NAME=work bu <<'PY'
+uv run harnessless-remote work
+BU_NAME=work uv run harnessless <<'PY'
+print(page_info())
+PY
+```
+
+After editable install, the same remote flow works from anywhere:
+
+```bash
+harnessless-remote work
+BU_NAME=work harnessless <<'PY'
 print(page_info())
 PY
 ```
