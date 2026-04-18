@@ -72,12 +72,13 @@ To confirm the memory/instructions are loaded:
 ### Simplest local setup
 
 1. Run `uv sync`.
-2. Open Chrome to `chrome://inspect/#remote-debugging`.
-   On macOS: `open -a "Google Chrome" "chrome://inspect/#remote-debugging"`
-   On Linux: open Chrome manually, then open that URL.
+2. Open the user's regular Chrome profile first, then open `chrome://inspect/#remote-debugging` in that same profile.
+   On macOS, prefer telling the user to open a normal Chrome window themselves if Chrome is not already in a profile, because `open -a "Google Chrome" "chrome://inspect/#remote-debugging"` can land on the profile picker instead of a usable browser window.
+   On Linux: open Chrome manually in the intended profile, then open that URL.
 3. Tell the user to tick the remote-debugging checkbox and click Chrome's "Allow" button if it appears.
-4. If setup hangs on the first connect, stop and wait for the user to click `Allow`, then retry once.
-5. Verify with:
+4. If the first connect hangs, assume Chrome is waiting on that permission flow. Wait for the user to finish the checkbox / `Allow` step, then poll the same run once before retrying or re-explaining setup.
+5. If Chrome opens the profile picker, have the user choose their normal profile before treating setup as complete.
+6. Verify with:
 
 ```bash
 uv run bh <<'PY'
@@ -181,6 +182,7 @@ Chrome / Browser Use cloud -> CDP WS -> daemon.py -> /tmp/bu-<NAME>.sock -> run.
 
 - **Chrome 144+ `chrome://inspect/#remote-debugging` does NOT serve `/json/version`.** Read `DevToolsActivePort` instead.
 - **The first connect may block on Chrome's Allow dialog.** If setup hangs, ask the user to click Allow, then retry once.
+- **Chrome may open the profile picker before any real tab exists.** Pick the user's normal profile first; remote debugging can be enabled while the browser is still not in a usable signed-in context.
 - **Omnibox popups are fake `page` targets.** Filter `chrome://omnibox-popup...` and other internals when you need a real tab.
 - **CDP target order != Chrome's visible tab-strip order.** Use UI automation when the user means "the first/second tab I can see"; `Target.activateTarget` only shows a known target.
 - **Default daemon sessions can go stale.** `ensure_real_tab()` re-attaches to a real page.
