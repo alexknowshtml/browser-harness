@@ -28,14 +28,13 @@ See [domain-skills/](domain-skills/) for examples on other websites.
 
 <br><br><br>
 
-## Code Structure
+## How simple is it? (~590 lines of Python)
 
 - `install.md` explains first-time install and browser bootstrap.
 - `SKILL.md` explains day-to-day browser harness usage.
-- `run.py` (~13 lines) executes plain Python with helpers preloaded.
-- `helpers.py` (~192 lines) holds the starting tool calls to interact with the browser and can be modified by the agent.
-- `admin.py` (~139 lines) holds daemon bootstrap and optional remote-browser helpers.
-- `daemon.py` (~220 lines) keeps the CDP websocket and socket bridge alive.
+- `run.py` (~36 lines) executes plain Python with helpers preloaded.
+- `helpers.py` (~195 lines) holds the starting tool calls to interact with the browser and can be modified by the agent.
+- `admin.py` + `daemon.py` (~359 lines) handle daemon bootstrap plus the CDP websocket and socket bridge.
 
 <br><br><br>
 
