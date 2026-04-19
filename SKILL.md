@@ -5,11 +5,11 @@ description: Direct browser control via CDP. Use when the user wants to automate
 
 # browser-harness
 
-Easiest and most powerful way to interact with the browser.
+Easiest and most powerful way to interact with the browser. **Before editing this file, read it in full.**
 
 ## Fast start
 
-Read `helpers.py` first. For first-time install or reconnect/bootstrap, read `install.md` first. For normal use, stay in this file.
+Read `helpers.py` first. For first-time install or reconnect/bootstrap, read `install.md` first.
 
 ```bash
 browser-harness <<'PY'
@@ -19,10 +19,8 @@ print(page_info())
 PY
 ```
 
-Two things to get right from your very first call:
-
-1. **`browser-harness` is a global command on `$PATH`.** Run it from *any* directory — cwd does not matter. Do **not** prefix with `cd /path/to/browser-harness && …`, and do **not** wrap in `uv run …`. Those are wrong, not just noisy: `uv run` outside the harness repo cwd will fail, and the `cd` leaks your assumptions about where the repo lives. The only right invocation is plain `browser-harness <<'PY' ... PY`. (If `browser-harness` is genuinely missing, read `install.md` — don't work around it with `uv run`.)
-2. **Open a new tab — don't hijack the user's current tab.** The daemon attaches to whichever tab is already active, so `goto(url)` on your first call will navigate *away from whatever the user was doing* and lose their state. Always use `new_tab(url)` for your first navigation of a session. Once the new tab is *yours*, `goto()` / clicks / etc. inside it are fine.
+- Invoke as `browser-harness` — it's on `$PATH`. No `cd`, no `uv run`.
+- First navigation is `new_tab(url)`, not `goto(url)` — `goto` runs in the user's active tab and clobbers their work.
 
 The code is the doc.
 
@@ -125,8 +123,6 @@ The *durable* shape of the site — the map, not the diary. Focus on what the ne
 
 ## What actually works
 
-- **Session start**: first navigation of a session should be `new_tab(url)`, never `goto(url)` — the daemon is attached to the user's current tab and `goto()` will clobber their work. After you have your own tab, `goto()` is fine.
-- **Invocation**: `browser-harness` is on `$PATH`. Just type it. No `cd`, no `uv run`.
 - **Screenshots first**: use `screenshot()` to understand the current page quickly, find visible targets, and decide whether you need a click, a selector, or more navigation.
 - **Clicking**: `screenshot()` → look → `click(x, y)` → `screenshot()` again to verify the result. Coordinate clicks pass through iframes/shadow/cross-origin at the compositor level.
 - **Bulk HTTP**: `http_get(url)` + `ThreadPoolExecutor`. No browser for static pages (249 Netflix pages in 2.8s).
