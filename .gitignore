@@ -1,6 +1,10 @@
+venv/
+.venv/
 __pycache__/
-*.pyc
-*.log
-.env
-uv.lock
 *.egg-info/
+*.pyc
+.env
+venv/
+mawn-sniper-v2.py
+opentable-book.py
+._*
