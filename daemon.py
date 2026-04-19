@@ -56,6 +56,12 @@ def log(msg):
 
 def get_ws_url():
     if url := os.environ.get("BU_CDP_WS"):
+        # If it's an HTTP base URL, resolve the actual WS URL from /json/version
+        if url.startswith("http://") or url.startswith("https://"):
+            base = url.rstrip("/")
+            with urllib.request.urlopen(f"{base}/json/version", timeout=5) as r:
+                data = json.loads(r.read())
+            return data["webSocketDebuggerUrl"]
         return url
     for base in PROFILES:
         try:
