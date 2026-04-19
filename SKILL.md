@@ -133,7 +133,7 @@ The *durable* shape of the site — the map, not the diary. Focus on what the ne
 - **Verification**: `print(page_info())` is the simplest "is this alive?" check, but screenshots are the default way to verify whether a visible action actually worked.
 - **DOM reads**: use `js(...)` for inspection and extraction when the screenshot shows that coordinates are the wrong tool.
 - **Iframe sites** (Azure blades, Salesforce): `click(x, y)` passes through; only drop to iframe DOM work when coordinate clicks are the wrong tool.
-- **Auth wall**: redirected to login → stop and ask the user. Don't type credentials from screenshots.
+- **Auth wall**: redirected to login → call `lobsterlink_auth_handoff()` from `helpers.py`. It starts a LobsterLink WebRTC session, posts the viewer URL to Discord so Alex can complete auth, then polls until navigation away from the login page. Never type credentials from screenshots.
 - **Raw CDP** for anything helpers don't cover: `cdp("Domain.method", **params)`.
 
 ## Design constraints

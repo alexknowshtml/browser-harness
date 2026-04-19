@@ -1,7 +1,8 @@
 """Browser control via CDP. Read, edit, extend -- this file is yours."""
 import base64, json, os, socket, time, urllib.request
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote as urllib_quote
+import urllib.parse
 
 
 def _load_env():
@@ -214,3 +215,107 @@ def http_get(url, headers=None, timeout=20.0):
         data = r.read()
         if r.headers.get("Content-Encoding") == "gzip": data = gzip.decompress(data)
         return data.decode()
+
+# --- LobsterLink auth handoff ---
+
+ANDY_DISCORD_URL = os.environ.get("ANDY_DISCORD_URL", "http://100.85.122.99:2643")
+LOBSTERLINK_DISCORD_THREAD = os.environ.get("LOBSTERLINK_DISCORD_THREAD", "")
+LOBSTERLINK_VIEWER_BASE = os.environ.get("LOBSTERLINK_VIEWER_BASE", "https://lobsterl.ink")
+
+
+def _lobsterlink_start_cdp():
+    """Trigger LobsterLink extension to start sharing via CDP service worker eval."""
+    targets = cdp("Target.getTargets")["targetInfos"]
+    ext = next(
+        (t for t in targets
+         if t.get("type") == "service_worker" and "lobsterlink" in t.get("url", "").lower()),
+        None,
+    )
+    if not ext:
+        raise RuntimeError("LobsterLink extension service worker not found — is the extension installed and enabled?")
+    session = cdp("Target.attachToTarget", targetId=ext["targetId"], flatten=True)["sessionId"]
+    cdp("Runtime.evaluate", session_id=session,
+        expression="self.handleStartHostingCDP && self.handleStartHostingCDP()", returnByValue=False)
+    return session
+
+
+def _lobsterlink_peer_id(session, timeout=15):
+    """Poll until LobsterLink has a peerId, return it."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = cdp("Runtime.evaluate", session_id=session,
+                expression="JSON.stringify({peerId: self.lobsterlinkHostState?.peerId || null})",
+                returnByValue=True)
+        val = r.get("result", {}).get("value")
+        if val:
+            peer_id = json.loads(val).get("peerId")
+            if peer_id:
+                return peer_id
+        time.sleep(0.5)
+    raise RuntimeError("Timed out waiting for LobsterLink peerId")
+
+
+def _notify_discord(viewer_url, auth_url, thread_id):
+    """Post viewer URL to Andy Discord thread."""
+    if not thread_id:
+        return
+    payload = json.dumps({
+        "channelId": thread_id,
+        "content": f"**Auth wall reached** — complete login then return to the tab.\n{viewer_url}\n*(automation resumes automatically)*",
+    }).encode()
+    req = urllib.request.Request(
+        f"{ANDY_DISCORD_URL}/send-message",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass  # Best-effort — don't block automation on notification failure
+
+
+def lobsterlink_auth_handoff(auth_url=None, thread_id=None, timeout=300):
+    """Pause at auth wall, share session via LobsterLink, resume when auth completes.
+
+    Triggers LobsterLink to share the active Chrome tab, posts the viewer URL to
+    Discord, then polls until navigation away from the auth URL (or timeout).
+
+    Args:
+        auth_url: Current login URL to poll against. Defaults to current page URL.
+        thread_id: Discord thread/channel ID to notify. Falls back to env LOBSTERLINK_DISCORD_THREAD.
+        timeout: Max seconds to wait for auth completion (default 300).
+
+    Returns:
+        dict with keys: viewer_url, peer_id, elapsed_seconds
+    """
+    if auth_url is None:
+        auth_url = page_info().get("url", "")
+    thread_id = thread_id or LOBSTERLINK_DISCORD_THREAD
+
+    session = _lobsterlink_start_cdp()
+    peer_id = _lobsterlink_peer_id(session)
+
+    base = LOBSTERLINK_VIEWER_BASE.rstrip("/")
+    viewer_url = f"{base}/?host={urllib_quote(peer_id)}"
+
+    _notify_discord(viewer_url, auth_url, thread_id)
+
+    # Poll for navigation away from auth URL
+    start = time.time()
+    deadline = start + timeout
+    while time.time() < deadline:
+        time.sleep(2)
+        current = page_info().get("url", "")
+        parsed_auth = urlparse(auth_url)
+        parsed_current = urlparse(current)
+        # Treat as complete when host+path no longer look like the auth page
+        if parsed_current.hostname != parsed_auth.hostname or (
+            parsed_current.path != parsed_auth.path and
+            "login" not in parsed_current.path and
+            "signin" not in parsed_current.path and
+            "auth" not in parsed_current.path
+        ):
+            return {"viewer_url": viewer_url, "peer_id": peer_id, "elapsed_seconds": round(time.time() - start)}
+
+    raise TimeoutError(f"Auth not completed within {timeout}s — viewer URL was: {viewer_url}")
