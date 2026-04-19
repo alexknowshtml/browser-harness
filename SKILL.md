@@ -12,7 +12,7 @@ Easiest and most powerful way to interact with the browser.
 Read `helpers.py` first. For first-time install or reconnect/bootstrap, read `install.md` first. For normal use, stay in this file.
 
 ```bash
-uv run bh <<'PY'
+uv run browser-harness <<'PY'
 goto("https://browser-use.com")
 wait_for_load()
 print(page_info())
@@ -156,7 +156,8 @@ Chrome / Browser Use cloud -> CDP WS -> daemon.py -> /tmp/bu-<NAME>.sock -> run.
 ## Gotchas (field-tested)
 
 - **Chrome 144+ `chrome://inspect/#remote-debugging` does NOT serve `/json/version`.** Read `DevToolsActivePort` instead.
-- **Try attaching before asking for setup.** If `uv run browser-harness` already works, skip the remote-debugging instructions entirely.
+- **Try attaching before asking for setup.** If `uv run browser-harness` already works, skip the remote-debugging instructions entirely. Decide what to escalate from the harness's error message, not from whether Chrome is visibly running.
+- **The remote-debugging checkbox is per-profile sticky in Chrome.** Once ticked on a profile, every future Chrome launch auto-enables CDP — only navigate to `chrome://inspect/#remote-debugging` when `DevToolsActivePort` is genuinely missing on a fresh profile.
 - **The first connect may block on Chrome's Allow dialog.** If setup hangs, explicitly tell the user to click `Allow` in Chrome if it appears, then keep polling for up to 30 seconds instead of treating follow-on errors as a new failure.
 - **`DevToolsActivePort` can exist before the port is actually listening.** Treat connection refused as "still enabling" and keep polling for up to 30 seconds.
 - **Chrome may open the profile picker before any real tab exists.** If Chrome opens both a profile picker and the remote-debugging page, tell the user to choose their normal profile first, then tick the checkbox and click `Allow` if shown.
