@@ -220,54 +220,104 @@ def http_get(url, headers=None, timeout=20.0):
 
 ANDY_DISCORD_URL = os.environ.get("ANDY_DISCORD_URL", "http://100.85.122.99:2643")
 LOBSTERLINK_DISCORD_THREAD = os.environ.get("LOBSTERLINK_DISCORD_THREAD", "")
-LOBSTERLINK_VIEWER_BASE = os.environ.get("LOBSTERLINK_VIEWER_BASE", "https://lobsterl.ink")
+LOBSTERLINK_VIEWER_BASE = os.environ.get("LOBSTERLINK_VIEWER_BASE", "https://viewer.jfdi.bot")
 LOBSTERLINK_EXTENSION_ID = os.environ.get("LOBSTERLINK_EXTENSION_ID", "bdmpokeipedajgnlgihohldpajmbdbli")
 
 
-def _lobsterlink_start_cdp():
-    """Trigger LobsterLink extension to start sharing via CDP service worker eval.
+LOBSTERLINK_BRIDGE_URL = f"chrome-extension://{LOBSTERLINK_EXTENSION_ID}/bridge.html"
 
-    Returns (session_id, peer_id) tuple — peer_id resolved from awaitPromise.
+
+def _lobsterlink_start_via_bridge(auth_url):
+    """Start LobsterLink host via the bridge page UI flow.
+
+    Strategy: open bridge.html in a NEW tab so the auth tab stays open and
+    unattached — LobsterLink can then attach its debugger to the auth tab freely.
+
+    Returns (peer_id, auth_tab_id) tuple.
     """
-    targets = cdp("Target.getTargets")["targetInfos"]
-    ext = next(
-        (t for t in targets
-         if t.get("type") == "service_worker" and (
-             "lobsterlink" in t.get("url", "").lower() or
-             LOBSTERLINK_EXTENSION_ID in t.get("url", "")
-         )),
-        None,
-    )
-    if not ext:
-        raise RuntimeError("LobsterLink extension service worker not found — is the extension installed and enabled?")
-    session = cdp("Target.attachToTarget", targetId=ext["targetId"], flatten=True)["sessionId"]
-    # Await the async handleStartHostingCDP() to get peer_id from return value
-    r = cdp("Runtime.evaluate", session_id=session,
-            expression="self.handleStartHostingCDP()",
-            awaitPromise=True, returnByValue=True, timeout=30000)
-    result = r.get("result", {}).get("value") or {}
-    peer_id = result.get("peerId") if isinstance(result, dict) else None
-    return session, peer_id
+    # Save auth tab ID before creating bridge tab
+    auth_tab_id = current_tab().get("targetId")
+
+    # Open bridge in a NEW tab — auth tab remains open and detached from daemon
+    new_tab(LOBSTERLINK_BRIDGE_URL)
+    time.sleep(2)
+
+    # Stop any stale host session before starting fresh
+    js("document.getElementById('bridge-stop-host')?.click()")
+    time.sleep(1.5)
+
+    # Refresh tab list so it sees the auth tab
+    js("document.getElementById('bridge-refresh-all')?.click() || document.getElementById('bridge-refresh-tabs')?.click()")
+    time.sleep(1)
+
+    # Select the auth tab from the #bridge-host-tab-select dropdown
+    # Options show: "Page Title (#tabId)" — match by hostname keywords
+    auth_host = urlparse(auth_url).hostname or auth_url[:30]
+    # Strip leading www. for broader matching ("linkedin.com" matches "linkedin")
+    host_keyword = auth_host.removeprefix("www.").split(".")[0]
+    select_js = f"""(function() {{
+      const sel = document.getElementById('bridge-host-tab-select');
+      if (!sel) return 'no-select';
+      const kw = {json.dumps(host_keyword)};
+      const authUrl = {json.dumps(auth_url)};
+      // Try exact URL match first, then keyword in title/url text
+      const opt = Array.from(sel.options).find(o =>
+        o.textContent.toLowerCase().includes(kw.toLowerCase())
+      );
+      if (!opt) return 'not-found:' + kw + ':options=' + Array.from(sel.options).map(o=>o.textContent.substring(0,40)).join('|');
+      sel.value = opt.value;
+      sel.dispatchEvent(new Event('change', {{bubbles: true}}));
+      return 'selected:' + opt.value + ':' + opt.textContent.substring(0, 60);
+    }})()"""
+    result = js(select_js)
+    if result and "not-found" in result:
+        raise RuntimeError(f"LobsterLink bridge: could not find tab for {auth_host} — {result}")
+
+    # Click Start Host
+    time.sleep(0.5)
+    js("document.getElementById('bridge-start-host')?.click()")
+    time.sleep(5)
+
+    # Read peer ID from bridge input (poll up to 10s)
+    peer_id = ""
+    for _ in range(10):
+        time.sleep(1)
+        peer_id = js("document.getElementById('bridge-peer-id')?.value || ''")
+        if peer_id:
+            break
+    if not peer_id:
+        raise RuntimeError("LobsterLink bridge: Start Host did not produce a peer ID within 10s")
+
+    # Park daemon on about:blank so it cannot reattach to the auth tab.
+    goto("about:blank")
+
+    return peer_id, auth_tab_id
 
 
-def _lobsterlink_peer_id(session_and_peer, timeout=15):
-    """Extract peer_id from (session, peer_id) tuple returned by _lobsterlink_start_cdp."""
-    _session, peer_id = session_and_peer
+def _lobsterlink_peer_id(peer_id_or_tuple, timeout=15):
+    """Normalize return from _lobsterlink_start_via_bridge (peer_id, auth_tab_id) tuple."""
+    if isinstance(peer_id_or_tuple, tuple):
+        peer_id = peer_id_or_tuple[0]
+    else:
+        peer_id = peer_id_or_tuple
     if peer_id:
         return peer_id
-    raise RuntimeError("LobsterLink handleStartHostingCDP did not return a peerId — check extension state")
+    raise RuntimeError("LobsterLink did not return a peerId")
 
 
 def _notify_discord(viewer_url, auth_url, thread_id):
-    """Post viewer URL to Andy Discord thread."""
+    """Post viewer URL to Andy Discord thread via send-to-thread command."""
     if not thread_id:
         return
     payload = json.dumps({
-        "channelId": thread_id,
-        "content": f"**Auth wall reached** — complete login then return to the tab.\n{viewer_url}\n*(automation resumes automatically)*",
+        "command": "send-to-thread",
+        "args": {
+            "thread": thread_id,
+            "message": f"**Auth wall reached** — complete login then return to the tab.\n{viewer_url}\n*(automation resumes automatically)*",
+        },
     }).encode()
     req = urllib.request.Request(
-        f"{ANDY_DISCORD_URL}/send-message",
+        f"{ANDY_DISCORD_URL}/command",
         data=payload,
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -296,29 +346,44 @@ def lobsterlink_auth_handoff(auth_url=None, thread_id=None, timeout=300):
         auth_url = page_info().get("url", "")
     thread_id = thread_id or LOBSTERLINK_DISCORD_THREAD
 
-    session_and_peer = _lobsterlink_start_cdp()
-    peer_id = _lobsterlink_peer_id(session_and_peer)
+    # Bridge workflow: open bridge in NEW tab so auth tab stays open and unattached.
+    # LobsterLink can then freely attach its debugger to the auth tab.
+    peer_id, auth_tab_id = _lobsterlink_start_via_bridge(auth_url)
 
     base = LOBSTERLINK_VIEWER_BASE.rstrip("/")
     viewer_url = f"{base}/?host={urllib_quote(peer_id)}"
 
+    print(f"LOBSTERLINK_VIEWER_URL: {viewer_url}", flush=True)
+
     _notify_discord(viewer_url, auth_url, thread_id)
 
-    # Poll for navigation away from auth URL
+    # Poll auth tab URL directly — no CDP session on that tab (LobsterLink owns it).
+    # Auth complete when the tab navigates away from the login path.
+    parsed_auth = urlparse(auth_url)
     start = time.time()
     deadline = start + timeout
     while time.time() < deadline:
-        time.sleep(2)
-        current = page_info().get("url", "")
-        parsed_auth = urlparse(auth_url)
-        parsed_current = urlparse(current)
-        # Treat as complete when host+path no longer look like the auth page
-        if parsed_current.hostname != parsed_auth.hostname or (
-            parsed_current.path != parsed_auth.path and
-            "login" not in parsed_current.path and
-            "signin" not in parsed_current.path and
-            "auth" not in parsed_current.path
-        ):
-            return {"viewer_url": viewer_url, "peer_id": peer_id, "elapsed_seconds": round(time.time() - start)}
+        time.sleep(3)
+        if auth_tab_id:
+            try:
+                info = cdp("Target.getTargetInfo", targetId=auth_tab_id).get("targetInfo", {})
+                current_url = info.get("url", "")
+                if current_url and current_url != auth_url:
+                    parsed_current = urlparse(current_url)
+                    # Auth complete: same host, navigated away from login path
+                    if (parsed_current.hostname == parsed_auth.hostname and
+                        "login" not in parsed_current.path and
+                        "signin" not in parsed_current.path and
+                        "auth" not in parsed_current.path and
+                        "checkpoint" not in parsed_current.path):
+                        try: switch_tab(auth_tab_id)
+                        except Exception: pass
+                        return {"viewer_url": viewer_url, "peer_id": peer_id, "elapsed_seconds": round(time.time() - start)}
+            except Exception:
+                pass
+        else:
+            # No auth_tab_id — wait for timeout, assume user signals done externally
+            if time.time() - start > 30:
+                return {"viewer_url": viewer_url, "peer_id": peer_id, "elapsed_seconds": round(time.time() - start)}
 
     raise TimeoutError(f"Auth not completed within {timeout}s — viewer URL was: {viewer_url}")
