@@ -328,7 +328,7 @@ def _notify_discord(viewer_url, auth_url, thread_id):
         pass  # Best-effort — don't block automation on notification failure
 
 
-def lobsterlink_auth_handoff(auth_url=None, thread_id=None, timeout=300):
+def lobsterlink_auth_handoff(auth_url=None, thread_id=None, timeout=600):
     """Pause at auth wall, share session via LobsterLink, resume when auth completes.
 
     Triggers LobsterLink to share the active Chrome tab, posts the viewer URL to
