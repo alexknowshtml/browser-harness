@@ -221,38 +221,41 @@ def http_get(url, headers=None, timeout=20.0):
 ANDY_DISCORD_URL = os.environ.get("ANDY_DISCORD_URL", "http://100.85.122.99:2643")
 LOBSTERLINK_DISCORD_THREAD = os.environ.get("LOBSTERLINK_DISCORD_THREAD", "")
 LOBSTERLINK_VIEWER_BASE = os.environ.get("LOBSTERLINK_VIEWER_BASE", "https://lobsterl.ink")
+LOBSTERLINK_EXTENSION_ID = os.environ.get("LOBSTERLINK_EXTENSION_ID", "bdmpokeipedajgnlgihohldpajmbdbli")
 
 
 def _lobsterlink_start_cdp():
-    """Trigger LobsterLink extension to start sharing via CDP service worker eval."""
+    """Trigger LobsterLink extension to start sharing via CDP service worker eval.
+
+    Returns (session_id, peer_id) tuple — peer_id resolved from awaitPromise.
+    """
     targets = cdp("Target.getTargets")["targetInfos"]
     ext = next(
         (t for t in targets
-         if t.get("type") == "service_worker" and "lobsterlink" in t.get("url", "").lower()),
+         if t.get("type") == "service_worker" and (
+             "lobsterlink" in t.get("url", "").lower() or
+             LOBSTERLINK_EXTENSION_ID in t.get("url", "")
+         )),
         None,
     )
     if not ext:
         raise RuntimeError("LobsterLink extension service worker not found — is the extension installed and enabled?")
     session = cdp("Target.attachToTarget", targetId=ext["targetId"], flatten=True)["sessionId"]
-    cdp("Runtime.evaluate", session_id=session,
-        expression="self.handleStartHostingCDP && self.handleStartHostingCDP()", returnByValue=False)
-    return session
+    # Await the async handleStartHostingCDP() to get peer_id from return value
+    r = cdp("Runtime.evaluate", session_id=session,
+            expression="self.handleStartHostingCDP()",
+            awaitPromise=True, returnByValue=True, timeout=30000)
+    result = r.get("result", {}).get("value") or {}
+    peer_id = result.get("peerId") if isinstance(result, dict) else None
+    return session, peer_id
 
 
-def _lobsterlink_peer_id(session, timeout=15):
-    """Poll until LobsterLink has a peerId, return it."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        r = cdp("Runtime.evaluate", session_id=session,
-                expression="JSON.stringify({peerId: self.lobsterlinkHostState?.peerId || null})",
-                returnByValue=True)
-        val = r.get("result", {}).get("value")
-        if val:
-            peer_id = json.loads(val).get("peerId")
-            if peer_id:
-                return peer_id
-        time.sleep(0.5)
-    raise RuntimeError("Timed out waiting for LobsterLink peerId")
+def _lobsterlink_peer_id(session_and_peer, timeout=15):
+    """Extract peer_id from (session, peer_id) tuple returned by _lobsterlink_start_cdp."""
+    _session, peer_id = session_and_peer
+    if peer_id:
+        return peer_id
+    raise RuntimeError("LobsterLink handleStartHostingCDP did not return a peerId — check extension state")
 
 
 def _notify_discord(viewer_url, auth_url, thread_id):
@@ -293,8 +296,8 @@ def lobsterlink_auth_handoff(auth_url=None, thread_id=None, timeout=300):
         auth_url = page_info().get("url", "")
     thread_id = thread_id or LOBSTERLINK_DISCORD_THREAD
 
-    session = _lobsterlink_start_cdp()
-    peer_id = _lobsterlink_peer_id(session)
+    session_and_peer = _lobsterlink_start_cdp()
+    peer_id = _lobsterlink_peer_id(session_and_peer)
 
     base = LOBSTERLINK_VIEWER_BASE.rstrip("/")
     viewer_url = f"{base}/?host={urllib_quote(peer_id)}"
