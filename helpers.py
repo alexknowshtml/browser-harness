@@ -1,5 +1,5 @@
 """Browser control via CDP. Read, edit, extend -- this file is yours."""
-import base64, json, os, socket, time, urllib.request
+import base64, json, os, socket, struct, subprocess, time, urllib.request
 from pathlib import Path
 from urllib.parse import urlparse, quote as urllib_quote
 import urllib.parse
@@ -99,9 +99,22 @@ def scroll(x, y, dy=-300, dx=0):
 
 
 # --- visual ---
-def screenshot(path="/tmp/shot.png", full=False):
+def screenshot(path="/tmp/shot.png", full=False, max_dim=1568):
     r = cdp("Page.captureScreenshot", format="png", captureBeyondViewport=full)
-    open(path, "wb").write(base64.b64decode(r["data"]))
+    raw = base64.b64decode(r["data"])
+    open(path, "wb").write(raw)
+    try:
+        w, h = struct.unpack(">II", raw[16:24])
+        if max(w, h) > max_dim:
+            tmp = path + ".resize.png"
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", path, "-vf",
+                 f"scale={max_dim}:{max_dim}:force_original_aspect_ratio=decrease", tmp],
+                capture_output=True, check=True,
+            )
+            os.replace(tmp, path)
+    except Exception:
+        pass
     return path
 
 
