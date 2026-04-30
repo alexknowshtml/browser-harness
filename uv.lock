@@ -68,9 +68,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "browser-harness", specifier = ">=0.0.1" },
-    { name = "cdp-use", specifier = ">=1.4.5" },
-    { name = "websockets", specifier = ">=16.0" },
+    { name = "browser-harness", specifier = "==0.0.1" },
+    { name = "cdp-use", specifier = "==1.4.5" },
+    { name = "websockets", specifier = "==16.0" },
 ]
 
 [[package]]
