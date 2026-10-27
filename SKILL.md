@@ -133,7 +133,7 @@ The *durable* shape of the site — the map, not the diary. Focus on what the ne
 - **Verification**: `print(page_info())` is the simplest "is this alive?" check, but screenshots are the default way to verify whether a visible action actually worked.
 - **DOM reads**: use `js(...)` for inspection and extraction when the screenshot shows that coordinates are the wrong tool.
 - **Iframe sites** (Azure blades, Salesforce): `click(x, y)` passes through; only drop to iframe DOM work when coordinate clicks are the wrong tool.
-- **Auth wall**: redirected to login → call `lobsterlink_auth_handoff()` from `helpers.py`. It starts a LobsterLink WebRTC session, posts the viewer URL to Discord so Alex can complete auth, then polls until navigation away from the login page. Never type credentials from screenshots.
+- **Auth wall**: redirected to login → hand the tab to Alex with a Beam control link (see the `beam` skill): activate the tab with `curl -X POST http://127.0.0.1:9222/json/activate/<targetId>`, run `beam share --control` on the Mini, post the Tailscale link, then poll `page_info()` until the URL leaves the login page. Never type credentials from screenshots.
 - **Raw CDP** for anything helpers don't cover: `cdp("Domain.method", **params)`.
 
 ## Design constraints
