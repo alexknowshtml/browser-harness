@@ -1,5 +1,6 @@
 """Browser control via CDP. Read, edit, extend -- this file is yours."""
 import base64, json, os, socket, struct, subprocess, time, urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse, quote as urllib_quote
 import urllib.parse
@@ -156,6 +157,29 @@ def new_tab(url="about:blank"):
     if url != "about:blank":
         goto(url)
     return tid
+
+def close_tab(target_id):
+    """Close a tab by id. Target.closeTarget can refuse from inside the harness, so use CDP's HTTP endpoint."""
+    base = os.environ.get("BU_CDP_WS", "http://127.0.0.1:9222").replace("ws://", "http://").split("/devtools")[0]
+    try:
+        urllib.request.urlopen(f"{base}/json/close/{target_id}", timeout=10).read()
+    except Exception:
+        pass
+
+
+@contextmanager
+def temp_tab(url="about:blank"):
+    """Open a tab for one job and close it afterwards, even on errors (#1376).
+
+        with temp_tab("https://example.com") as tid:
+            print(page_info())
+    """
+    tid = new_tab(url)
+    try:
+        yield tid
+    finally:
+        close_tab(tid)
+
 
 def ensure_real_tab():
     """Switch to a real user tab if current is chrome:// / internal / stale."""

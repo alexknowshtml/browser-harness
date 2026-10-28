@@ -113,6 +113,7 @@ class Daemon:
         self.events = deque(maxlen=BUF)
         self.dialog = None
         self.stop = None  # asyncio.Event, set inside start()
+        self.created = set()  # blank tabs this daemon made; closed on shutdown if still blank (#1376)
 
     async def attach_first_page(self):
         """Attach to a real page (or any page). Sets self.session. Returns attached target or None."""
@@ -122,16 +123,38 @@ class Daemon:
             # No real pages — create one instead of attaching to omnibox popup
             tid = (await self.cdp.send_raw("Target.createTarget", {"url": "about:blank"}))["targetId"]
             log(f"no real pages found, created about:blank ({tid})")
+            self.created.add(tid)
             pages = [{"targetId": tid, "url": "about:blank", "type": "page"}]
         page = pages[0]
         if not await self._attach(page):
             # Memory Saver (Helium) freezes background tabs; domains on a frozen tab never answer.
-            # Fall back to a fresh blank tab instead of hanging every later call.
+            # Fall back to a blank tab instead of hanging every later call. Reuse one that's already
+            # open first: a fresh one per attach left 14 blank tabs behind on Oct 27 (#1376).
+            blanks = [t for t in targets if t["type"] == "page" and t.get("url") == "about:blank"
+                      and t["targetId"] != page["targetId"]]
+            for b in blanks:
+                if await self._attach(b):
+                    log(f"first page unresponsive, reused about:blank ({b['targetId']})")
+                    return b
             tid = (await self.cdp.send_raw("Target.createTarget", {"url": "about:blank"}))["targetId"]
             log(f"first page unresponsive, created about:blank ({tid})")
+            self.created.add(tid)
             page = {"targetId": tid, "url": "about:blank", "type": "page"}
             await self._attach(page)
         return page
+
+    async def close_created(self):
+        """Close blank tabs this daemon made, if they're still blank (a caller may have navigated one)."""
+        if not self.created or not self.cdp:
+            return
+        try:
+            infos = (await self.cdp.send_raw("Target.getTargets"))["targetInfos"]
+            for t in infos:
+                if t["targetId"] in self.created and t.get("url") == "about:blank":
+                    await asyncio.wait_for(self.cdp.send_raw("Target.closeTarget", {"targetId": t["targetId"]}), timeout=3)
+                    log(f"closed own blank tab {t['targetId']}")
+        except Exception as e:
+            log(f"close_created failed: {e}")
 
     async def _attach(self, page):
         """Attach to page and enable domains. Returns False if the tab never answered."""
@@ -241,7 +264,10 @@ async def serve(d):
 async def main():
     d = Daemon()
     await d.start()
-    await serve(d)
+    try:
+        await serve(d)
+    finally:
+        await d.close_created()
 
 
 def already_running():

@@ -21,6 +21,7 @@ PY
 
 - Invoke as `browser-harness` — it's on `$PATH`. No `cd`, no `uv run`.
 - First navigation is `new_tab(url)`, not `goto(url)` — `goto` runs in the user's active tab and clobbers their work.
+- One-off jobs use `with temp_tab(url):` so the tab closes when the job ends, errors included. A bare `new_tab` stays open; close it with `close_tab(tid)`.
 
 The code is the doc.
 
