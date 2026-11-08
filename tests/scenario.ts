@@ -1,0 +1,40 @@
+// Helper scenario, TS side. Paired with scenario.py; outputs must match (#1600 gate 2).
+import * as h from "../helpers";
+const out: any[] = [];
+const rec = async (label: string, fn: () => any) => {
+  try { const v = await fn(); out.push([label, v === undefined ? null : v]); } catch (e: any) { out.push([label, "ERR:" + e.message]); }
+};
+await rec("list_tabs", () => h.list_tabs());
+await rec("list_tabs no chrome", () => h.list_tabs(false));
+await rec("current_tab", () => h.current_tab());
+await rec("page_info", () => h.page_info());
+await rec("new_tab", () => h.new_tab("https://www.example.com/a"));
+await rec("page_info after new_tab", () => h.page_info());
+await rec("goto", () => h.goto("https://example.net/b"));
+await rec("click", () => h.click(10, 20));
+await rec("click right double", () => h.click(1, 2, "right", 2));
+await rec("type_text", () => h.type_text("héllo 🟢"));
+for (const k of ["Enter", "Tab", "a", "Z", "é", "F5", " ", "ArrowDown"]) await rec(`press_key ${k}`, () => h.press_key(k));
+await rec("press_key mod", () => h.press_key("a", 10));
+await rec("scroll", () => h.scroll(5, 6));
+await rec("scroll dx", () => h.scroll(5, 6, 100, -50));
+await rec("screenshot", async () => { await h.screenshot("/tmp/t1600-ts.png"); return Buffer.from(await Bun.file("/tmp/t1600-ts.png").arrayBuffer()).toString("hex"); });
+await rec("js", () => h.js("document.readyState"));
+await rec("js float", () => h.js("1.0+0"));
+await rec("wait_for_load", () => h.wait_for_load(2));
+await rec("dispatch_key", () => h.dispatch_key('#q"é', "Enter"));
+await rec("dispatch_key a", () => h.dispatch_key("input", "a", "keydown"));
+await rec("upload_file", () => h.upload_file("#f", "/tmp/x.txt"));
+await rec("upload_file list", () => h.upload_file("#f", ["/tmp/a", "/tmp/b"]));
+await rec("upload_file missing", () => h.upload_file("#missing", "/tmp/x"));
+await rec("iframe_target none", () => h.iframe_target("nothing"));
+await rec("drain_events", async () => (await h.drain_events()).map((e: any) => e.method));
+await rec("switch back", async () => (await h.switch_tab((await h.list_tabs())[0].targetId)) != null);
+await rec("ensure_real_tab", () => h.ensure_real_tab());
+let tid: string | null = null;
+await rec("temp_tab", () => h.temp_tab("https://example.com/tmp", async (t) => { tid = t; return (await h.page_info()).url; }));
+await rec("temp_tab closed", async () => (await h.list_tabs()).some((t) => t.targetId === tid));
+await rec("cdp error", () => h.cdp("Nope.x"));
+await rec("tabs end", async () => (await h.list_tabs()).map((t) => t.url));
+console.log(JSON.stringify(out));
+process.exit(0);
