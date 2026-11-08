@@ -11,45 +11,41 @@ No authentication required for any approach documented here. All code uses `http
 
 Returns JSON in ~0.3s. Works for **tracks, playlists/sets, and user profiles**. No key required.
 
-```python
-from helpers import http_get
-import json
+```ts
+// Fetch oEmbed metadata for any public SoundCloud URL.
+// Works for:
+//   - https://soundcloud.com/{user}/{track-slug}
+//   - https://soundcloud.com/{user}/sets/{playlist-slug}
+//   - https://soundcloud.com/{user}
+async function soundcloud_oembed(resource_url: string) {
+  const url = `https://soundcloud.com/oembed?url=${resource_url}&format=json`;
+  return JSON.parse(await http_get(url));
+}
 
-def soundcloud_oembed(resource_url):
-    """Fetch oEmbed metadata for any public SoundCloud URL.
+// Track
+const track = await soundcloud_oembed("https://soundcloud.com/forss/flickermood");
+// {
+//   "version": 1.0,
+//   "type": "rich",
+//   "provider_name": "SoundCloud",
+//   "provider_url": "https://soundcloud.com",
+//   "height": 400,
+//   "width": "100%",
+//   "title": "Flickermood by Forss",
+//   "description": "From the Soulhack album...",
+//   "thumbnail_url": "https://i1.sndcdn.com/artworks-000067273316-smsiqx-t500x500.jpg",
+//   "html": "<iframe width=\"100%\" height=\"400\" scrolling=\"no\" frameborder=\"no\" src=\"https://w.soundcloud.com/player/?visual=true&url=...\">",
+//   "author_name": "Forss",
+//   "author_url": "https://soundcloud.com/forss"
+// }
 
-    Works for:
-      - https://soundcloud.com/{user}/{track-slug}
-      - https://soundcloud.com/{user}/sets/{playlist-slug}
-      - https://soundcloud.com/{user}
-    """
-    url = f"https://soundcloud.com/oembed?url={resource_url}&format=json"
-    return json.loads(http_get(url))
+// Playlist/set
+const pl = await soundcloud_oembed("https://soundcloud.com/forss/sets/soulhack");
+// title="Soulhack by Forss", description="My 2003 debut album...", height=450
 
-# Track
-track = soundcloud_oembed("https://soundcloud.com/forss/flickermood")
-# {
-#   "version": 1.0,
-#   "type": "rich",
-#   "provider_name": "SoundCloud",
-#   "provider_url": "https://soundcloud.com",
-#   "height": 400,
-#   "width": "100%",
-#   "title": "Flickermood by Forss",
-#   "description": "From the Soulhack album...",
-#   "thumbnail_url": "https://i1.sndcdn.com/artworks-000067273316-smsiqx-t500x500.jpg",
-#   "html": "<iframe width=\"100%\" height=\"400\" scrolling=\"no\" frameborder=\"no\" src=\"https://w.soundcloud.com/player/?visual=true&url=...\">",
-#   "author_name": "Forss",
-#   "author_url": "https://soundcloud.com/forss"
-# }
-
-# Playlist/set
-pl = soundcloud_oembed("https://soundcloud.com/forss/sets/soulhack")
-# title="Soulhack by Forss", description="My 2003 debut album...", height=450
-
-# User profile
-user = soundcloud_oembed("https://soundcloud.com/forss")
-# title="Forss", description="Artist & Founder SoundCloud", height=450
+// User profile
+const user = await soundcloud_oembed("https://soundcloud.com/forss");
+// title="Forss", description="Artist & Founder SoundCloud", height=450
 ```
 
 ### oEmbed fields
@@ -71,66 +67,64 @@ user = soundcloud_oembed("https://soundcloud.com/forss")
 
 Every SoundCloud page embeds a JSON array in a `<script>` tag as `window.__sc_hydration`. This contains full API-grade metadata with no key required.
 
-```python
-from helpers import http_get
-import json, re
+```ts
+// Extract __sc_hydration JSON from any SoundCloud page.
+async function extract_hydration(page_url: string): Promise<any[]> {
+  const html = await http_get(page_url);
+  const match = html.match(/window\.__sc_hydration\s*=\s*(\[.*?\]);\s*</s);
+  if (!match) return [];
+  return JSON.parse(match[1]);
+}
 
-def extract_hydration(page_url):
-    """Extract __sc_hydration JSON from any SoundCloud page."""
-    html = http_get(page_url)
-    match = re.search(r'window\.__sc_hydration\s*=\s*(\[.*?\]);\s*<', html, re.DOTALL)
-    if not match:
-        return []
-    return json.loads(match.group(1))
+// Get the 'data' object for a specific hydratable type.
+async function get_hydration_by_type(page_url: string, hydratable: string) {
+  for (const obj of await extract_hydration(page_url)) {
+    if (obj.hydratable === hydratable) return obj.data ?? null;
+  }
+  return null;
+}
 
-def get_hydration_by_type(page_url, hydratable):
-    """Get the 'data' dict for a specific hydratable type."""
-    for obj in extract_hydration(page_url):
-        if obj.get('hydratable') == hydratable:
-            return obj.get('data')
-    return None
+// Track page — hydration key is 'sound'
+const track = await get_hydration_by_type("https://soundcloud.com/forss/flickermood", "sound");
+// track.id             = 293
+// track.title          = "Flickermood"
+// track.playback_count = 962685
+// track.likes_count    = 2592
+// track.duration       = 213886  (milliseconds)
+// track.genre          = "Electronic"
+// track.created_at     = "2007-09-22T14:45:46Z"
+// track.artwork_url    = "https://i1.sndcdn.com/artworks-000067273316-smsiqx-large.jpg"
+// track.waveform_url   = "https://wave.sndcdn.com/cWHNerOLlkUq_m.json"
+// track.streamable     = true
+// track.downloadable   = true
+// track.license        = "all-rights-reserved"
+// track.tag_list       = "downtempo"
+// track.urn            = "soundcloud:tracks:293"
+// track.media          = {transcodings: [...]}  (HLS/progressive stream URLs — need auth)
+// track.user           = {full user object nested}
 
-# Track page — hydration key is 'sound'
-track = get_hydration_by_type("https://soundcloud.com/forss/flickermood", "sound")
-# track['id']             = 293
-# track['title']          = "Flickermood"
-# track['playback_count'] = 962685
-# track['likes_count']    = 2592
-# track['duration']       = 213886  (milliseconds)
-# track['genre']          = "Electronic"
-# track['created_at']     = "2007-09-22T14:45:46Z"
-# track['artwork_url']    = "https://i1.sndcdn.com/artworks-000067273316-smsiqx-large.jpg"
-# track['waveform_url']   = "https://wave.sndcdn.com/cWHNerOLlkUq_m.json"
-# track['streamable']     = True
-# track['downloadable']   = True
-# track['license']        = "all-rights-reserved"
-# track['tag_list']       = "downtempo"
-# track['urn']            = "soundcloud:tracks:293"
-# track['media']          = {'transcodings': [...]}  (HLS/progressive stream URLs — need auth)
-# track['user']           = {full user object nested}
+// User page — hydration key is 'user'
+const user = await get_hydration_by_type("https://soundcloud.com/forss", "user");
+// user.id               = 183
+// user.username         = "Forss"
+// user.full_name        = "Eric Quidenus-Wahlforss"
+// user.followers_count  = 132203
+// user.track_count      = 26
+// user.verified         = true
+// user.city             = "Berlin"
+// user.country_code     = "DE"
+// user.description      = "Artist & Founder SoundCloud"
+// user.creator_subscription = {product: {id: 'creator-pro-unlimited'}}
+// user.badges           = {pro_unlimited: true, verified: true}
 
-# User page — hydration key is 'user'
-user = get_hydration_by_type("https://soundcloud.com/forss", "user")
-# user['id']               = 183
-# user['username']         = "Forss"
-# user['full_name']        = "Eric Quidenus-Wahlforss"
-# user['followers_count']  = 132203
-# user['track_count']      = 26
-# user['verified']         = True
-# user['city']             = "Berlin"
-# user['country_code']     = "DE"
-# user['description']      = "Artist & Founder SoundCloud"
-# user['creator_subscription'] = {'product': {'id': 'creator-pro-unlimited'}}
-# user['badges']           = {'pro_unlimited': True, 'verified': True}
-
-# Playlist/set page — hydration key is 'playlist'
-playlist = get_hydration_by_type("https://soundcloud.com/forss/sets/soulhack", "playlist")
-# playlist['id']           = 18
-# playlist['title']        = "Soulhack"
-# playlist['track_count']  = 11
-# playlist['tracks']       = [full track objects list]
-# playlist['is_album']     = True/False
-# playlist['genre']        = "Electronic"
+// Playlist/set page — hydration key is 'playlist'
+const playlist = await get_hydration_by_type("https://soundcloud.com/forss/sets/soulhack", "playlist");
+// playlist.id           = 18
+// playlist.title        = "Soulhack"
+// playlist.track_count  = 11
+// playlist.tracks       = [full track objects list]
+// playlist.is_album     = true/false
+// playlist.genre        = "Electronic"
 ```
 
 ### All hydration keys on a typical page
@@ -151,125 +145,130 @@ playlist = get_hydration_by_type("https://soundcloud.com/forss/sets/soulhack", "
 
 The `client_id` lives in every page's `__sc_hydration` under the `apiClient` key. It is **stable across all pages and sessions** — extract once and reuse.
 
-```python
-from helpers import http_get
-import json, re
+```ts
+// Extract client_id from any SoundCloud page's __sc_hydration.
+async function get_client_id(page_url = "https://soundcloud.com"): Promise<string> {
+  const html = await http_get(page_url);
+  const match = html.match(/window\.__sc_hydration\s*=\s*(\[.*?\]);\s*</s);
+  if (!match) throw new Error("No hydration found");
+  for (const obj of JSON.parse(match[1])) {
+    if (obj.hydratable === "apiClient") return obj.data.id;
+  }
+  throw new Error("apiClient not found in hydration");
+}
 
-def get_client_id(page_url="https://soundcloud.com"):
-    """Extract client_id from any SoundCloud page's __sc_hydration."""
-    html = http_get(page_url)
-    match = re.search(r'window\.__sc_hydration\s*=\s*(\[.*?\]);\s*<', html, re.DOTALL)
-    if not match:
-        raise ValueError("No hydration found")
-    for obj in json.loads(match.group(1)):
-        if obj.get('hydratable') == 'apiClient':
-            return obj['data']['id']
-    raise ValueError("apiClient not found in hydration")
+const CLIENT_ID = await get_client_id(); // "efg2kjLJnAJpInbN6P3hsHzispI1SKQH" (example — extract fresh)
 
-CLIENT_ID = get_client_id()  # "efg2kjLJnAJpInbN6P3hsHzispI1SKQH" (example — extract fresh)
-
-def sc_api(path, **params):
-    """Call api-v2.soundcloud.com. Returns parsed JSON."""
-    params['client_id'] = CLIENT_ID
-    qs = "&".join(f"{k}={v}" for k, v in params.items())
-    return json.loads(http_get(f"https://api-v2.soundcloud.com/{path}?{qs}"))
+// Call api-v2.soundcloud.com. Returns parsed JSON.
+async function sc_api(path: string, params: Record<string, any> = {}) {
+  params = { ...params, client_id: CLIENT_ID };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&");
+  return JSON.parse(await http_get(`https://api-v2.soundcloud.com/${path}?${qs}`));
+}
 ```
 
 ### Resolve any URL to a resource
 
-```python
-# Resolve a permalink URL to get its resource with full metadata
-track = sc_api("resolve", url="https://soundcloud.com/forss/flickermood")
-# Returns: {'kind': 'track', 'id': 293, 'title': 'Flickermood', ...}
+```ts
+// Resolve a permalink URL to get its resource with full metadata
+const track = await sc_api("resolve", { url: "https://soundcloud.com/forss/flickermood" });
+// Returns: {kind: 'track', id: 293, title: 'Flickermood', ...}
 
-user = sc_api("resolve", url="https://soundcloud.com/forss")
-# Returns: {'kind': 'user', 'id': 183, 'username': 'Forss', ...}
+const user = await sc_api("resolve", { url: "https://soundcloud.com/forss" });
+// Returns: {kind: 'user', id: 183, username: 'Forss', ...}
 ```
 
 ### Track lookup
 
-```python
-# Single track by numeric ID
-track = sc_api("tracks/293")
+```ts
+// Single track by numeric ID
+const track = await sc_api("tracks/293");
 
-# Bulk track lookup (comma-separated IDs — returns list)
-tracks = sc_api("tracks", ids="293,290,48031525")
-# Returns a JSON array directly (not wrapped in 'collection')
-for t in tracks:
-    print(t['id'], t['title'], t['playback_count'])
+// Bulk track lookup (comma-separated IDs — returns list)
+const tracks = await sc_api("tracks", { ids: "293,290,48031525" });
+// Returns a JSON array directly (not wrapped in 'collection')
+for (const t of tracks) {
+  console.log(t.id, t.title, t.playback_count);
+}
 ```
 
 ### Search
 
-```python
-# Tracks
-results = sc_api("search/tracks", q="jazz", limit=20)
-# results['collection']    = list of track objects
-# results['total_results'] = 5293248
-# results['next_href']     = pagination URL (see below)
+```ts
+// Tracks
+let results = await sc_api("search/tracks", { q: "jazz", limit: 20 });
+// results.collection    = list of track objects
+// results.total_results = 5293248
+// results.next_href     = pagination URL (see below)
 
-# Users
-results = sc_api("search/users", q="jazz", limit=10)
+// Users
+results = await sc_api("search/users", { q: "jazz", limit: 10 });
 
-# Playlists/sets
-results = sc_api("search/playlists", q="jazz", limit=10)
+// Playlists/sets
+results = await sc_api("search/playlists", { q: "jazz", limit: 10 });
 
-# Paginate with next_href
-def paginate(first_response):
-    """Yield all pages of a collection response."""
-    yield from first_response.get('collection', [])
-    next_href = first_response.get('next_href')
-    while next_href:
-        page = json.loads(http_get(f"{next_href}&client_id={CLIENT_ID}"))
-        yield from page.get('collection', [])
-        next_href = page.get('next_href')
+// Paginate with next_href: yields every item across all pages of a collection response
+async function* paginate(first_response: any) {
+  yield* first_response.collection ?? [];
+  let next_href = first_response.next_href;
+  while (next_href) {
+    const page = JSON.parse(await http_get(`${next_href}&client_id=${CLIENT_ID}`));
+    yield* page.collection ?? [];
+    next_href = page.next_href;
+  }
+}
+// for await (const item of paginate(results)) { ... }
 ```
 
 ### Trending charts
 
-```python
-# Trending tracks across all genres
-trending = sc_api("charts", kind="trending",
-                  genre="soundcloud:genres:all-music", limit=20)
-for item in trending['collection']:
-    t = item['track']
-    print(f"{t['title']} — score={item['score']:.4f}")
+```ts
+// Trending tracks across all genres
+const trending = await sc_api("charts", {
+  kind: "trending",
+  genre: "soundcloud:genres:all-music",
+  limit: 20,
+});
+for (const item of trending.collection) {
+  const t = item.track;
+  console.log(`${t.title} — score=${item.score.toFixed(4)}`);
+}
 
-# Genre options: soundcloud:genres:all-music, soundcloud:genres:electronic,
-#                soundcloud:genres:hiphoprap, soundcloud:genres:ambient, etc.
+// Genre options: soundcloud:genres:all-music, soundcloud:genres:electronic,
+//                soundcloud:genres:hiphoprap, soundcloud:genres:ambient, etc.
 ```
 
 ### User resources
 
-```python
-user_id = 183  # numeric ID from resolve or hydration
+```ts
+const user_id = 183; // numeric ID from resolve or hydration
 
-# User's tracks
-tracks = sc_api(f"users/{user_id}/tracks", limit=20)
-# tracks['collection'] = list of track objects
+// User's tracks
+const tracks = await sc_api(`users/${user_id}/tracks`, { limit: 20 });
+// tracks.collection = list of track objects
 
-# User's playlists
-playlists = sc_api(f"users/{user_id}/playlists", limit=10)
+// User's playlists
+const playlists = await sc_api(`users/${user_id}/playlists`, { limit: 10 });
 
-# User's likes
-likes = sc_api(f"users/{user_id}/likes", limit=10)
+// User's likes
+const likes = await sc_api(`users/${user_id}/likes`, { limit: 10 });
 
-# Related tracks for a track
-related = sc_api("tracks/293/related", limit=10)
-# related['collection'] = list of track objects
+// Related tracks for a track
+const related = await sc_api("tracks/293/related", { limit: 10 });
+// related.collection = list of track objects
 ```
 
 ### Waveform data
 
-```python
-# Waveform URL comes from track['waveform_url']
-waveform_url = "https://wave.sndcdn.com/cWHNerOLlkUq_m.json"
-waveform = json.loads(http_get(waveform_url))
-# {
-#   'width': 1800,   # number of sample points
-#   'height': 140,   # max amplitude value
-#   'samples': [11, 86, 91, 80, ...]  # 1800 amplitude values
-# }
+```ts
+// Waveform URL comes from track.waveform_url
+const waveform_url = "https://wave.sndcdn.com/cWHNerOLlkUq_m.json";
+const waveform = JSON.parse(await http_get(waveform_url));
+// {
+//   width: 1800,   // number of sample points
+//   height: 140,   // max amplitude value
+//   samples: [11, 86, 91, 80, ...]  // 1800 amplitude values
+// }
 ```
 
 ---
@@ -327,15 +326,15 @@ station_urn      str     "soundcloud:system-playlists:track-stations:{id}"
 - `-t300x300.jpg` → 300×300
 - `-t500x500.jpg` → 500×500 (oEmbed returns this size)
 
-**Regex must use `re.DOTALL`** — the `__sc_hydration` JSON spans multiple lines. Without `re.DOTALL`, the `.` in the regex won't match newlines.
+**Regex must use the `s` (dotAll) flag** — the `__sc_hydration` JSON spans multiple lines. Without `/s`, the `.` in the regex won't match newlines.
 
 **Stream URLs (media.transcodings) are gated** — the HLS/progressive audio stream URLs in `track['media']['transcodings']` require an OAuth token even to fetch a stream manifest. They cannot be played without a logged-in session.
 
-**Bulk track lookup returns a list, not collection** — `GET /tracks?ids=...` returns a JSON array directly. Do NOT look for `.get('collection')`.
+**Bulk track lookup returns a list, not collection** — `GET /tracks?ids=...` returns a JSON array directly. Do NOT look for `.collection`.
 
 **Search `total_results` can be huge** — results like 5M+ are normal for broad queries. Use `next_href` for pagination; do not calculate offsets manually.
 
-**oEmbed description contains HTML** — SoundCloud descriptions may include `&nbsp;` and anchor tags. Decode with `html.unescape()` if you need plain text.
+**oEmbed description contains HTML** — SoundCloud descriptions may include `&nbsp;` and anchor tags. Decode the entities (a small inline unescape helper) if you need plain text.
 
 **HTTP 400 on some endpoints** — `/tracks/{id}/comments` returns 400 without OAuth headers. Timed comments are not accessible without login.
 

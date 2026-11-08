@@ -4,16 +4,13 @@
 
 ## Do this first
 
-**Every response is a 2-element JSON array: `[metadata, data]`.** The metadata element is always at index 0 (pagination info); the data array is at index 1. This is the single biggest gotcha — `json.loads(raw)` gives you a list, not a dict.
+**Every response is a 2-element JSON array: `[metadata, data]`.** The metadata element is always at index 0 (pagination info); the data array is at index 1. This is the single biggest gotcha — `JSON.parse(raw)` gives you an array, not an object.
 
-```python
-from helpers import http_get
-import json
-
-raw = http_get("https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD?format=json")
-d = json.loads(raw)
-meta = d[0]   # {"page": 1, "pages": 2, "per_page": 50, "total": 66, ...}
-rows = d[1]   # list of data records
+```ts
+const raw = await http_get("https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD?format=json")
+const d = JSON.parse(raw)
+const meta = d[0]   // {"page": 1, "pages": 2, "per_page": 50, "total": 66, ...}
+const rows = d[1]   // array of data records
 ```
 
 Always append `?format=json` — default response is XML.
@@ -22,221 +19,202 @@ Always append `?format=json` — default response is XML.
 
 ### Single country, single indicator
 
-```python
-from helpers import http_get
-import json
+```ts
+const raw = await http_get("https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD?format=json")
+const d = JSON.parse(raw)
+const [meta, rows] = [d[0], d[1]]
 
-raw = http_get("https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD?format=json")
-d = json.loads(raw)
-meta, rows = d[0], d[1]
-
-for r in rows:
-    if r["value"] is not None:   # recent years often have null values
-        print(r["date"], r["value"])
-# Confirmed output (2026-04-18):
-# 2024 28750956130731.2
-# 2023 27292170793214.4
-# 2022 25604848907611.0
-# ...
+for (const r of rows) {
+  if (r.value !== null) {   // recent years often have null values
+    console.log(r.date, r.value)
+  }
+}
+// Confirmed output (2026-04-18):
+// 2024 28750956130731.2
+// 2023 27292170793214.4
+// 2022 25604848907611.0
+// ...
 ```
 
 ### Most recent N values (`mrv` param)
 
 `mrv` (most recent values) skips null years and returns the N most recent non-provisional points.
 
-```python
-from helpers import http_get
-import json
-
-raw = http_get(
-    "https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD"
-    "?format=json&mrv=5"
+```ts
+const raw = await http_get(
+  "https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD" +
+  "?format=json&mrv=5"
 )
-d = json.loads(raw)
-for r in d[1]:
-    print(r["date"], r["value"])
-# Confirmed output (2026-04-18):
-# 2024 28750956130731.2
-# 2023 27292170793214.4
-# 2022 25604848907611.0
-# 2021 23315080560000.0
-# 2020 21060473613000.0
+const d = JSON.parse(raw)
+for (const r of d[1]) {
+  console.log(r.date, r.value)
+}
+// Confirmed output (2026-04-18):
+// 2024 28750956130731.2
+// 2023 27292170793214.4
+// 2022 25604848907611.0
+// 2021 23315080560000.0
+// 2020 21060473613000.0
 ```
 
 ### Multiple countries, date range
 
 Semicolon-delimit country codes in the URL path. Use `date=YYYY:YYYY` for a range.
 
-```python
-from helpers import http_get
-import json
-
-raw = http_get(
-    "https://api.worldbank.org/v2/country/US;CN;GB/indicator/SP.POP.TOTL"
-    "?format=json&date=2000:2023&per_page=100"
+```ts
+const raw = await http_get(
+  "https://api.worldbank.org/v2/country/US;CN;GB/indicator/SP.POP.TOTL" +
+  "?format=json&date=2000:2023&per_page=100"
 )
-d = json.loads(raw)
-meta, rows = d[0], d[1]
-print(f"Total records: {meta['total']}, pages: {meta['pages']}")
+const d = JSON.parse(raw)
+const [meta, rows] = [d[0], d[1]]
+console.log(`Total records: ${meta.total}, pages: ${meta.pages}`)
 
-for r in rows:
-    print(r["country"]["value"], r["date"], r["value"])
-# Confirmed: returns 8 records per page (50 default), date range honored exactly
-# Countries: ['China', 'United States', 'United Kingdom']
-# Dates: ['2000', '2001', ..., '2023']
+for (const r of rows) {
+  console.log(r.country.value, r.date, r.value)
+}
+// Confirmed: returns 8 records per page (50 default), date range honored exactly
+// Countries: ['China', 'United States', 'United Kingdom']
+// Dates: ['2000', '2001', ..., '2023']
 ```
 
 ### All countries, latest value only
 
 Use `mrv=1` with `per_page=1000` to get all 266 countries in a single call.
 
-```python
-from helpers import http_get
-import json
-
-raw = http_get(
-    "https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD"
-    "?format=json&mrv=1&per_page=1000"
+```ts
+const raw = await http_get(
+  "https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD" +
+  "?format=json&mrv=1&per_page=1000"
 )
-d = json.loads(raw)
-meta, rows = d[0], d[1]
-print(f"Countries returned: {len(rows)}")  # 266 (includes aggregates)
+const d = JSON.parse(raw)
+const [meta, rows] = [d[0], d[1]]
+console.log(`Countries returned: ${rows.length}`)  // 266 (includes aggregates)
 
-# Filter out regional aggregates — they have no iso2Code or have aggregate ids
-countries_only = [r for r in rows if len(r["country"]["id"]) == 2]
-for r in sorted(countries_only, key=lambda x: -(x["value"] or 0))[:5]:
-    print(r["country"]["value"], r["date"], f"${r['value']:,.0f}")
-# Confirmed output (2026-04-18):
-# Luxembourg 2024 $135,605
-# Norway 2024 $105,056
-# ...
+// Filter out regional aggregates — they have no iso2Code or have aggregate ids
+const countries_only = rows.filter((r: any) => r.country.id.length === 2)
+const top = [...countries_only].sort((a: any, b: any) => (b.value ?? 0) - (a.value ?? 0)).slice(0, 5)
+for (const r of top) {
+  console.log(r.country.value, r.date, `$${Math.round(r.value).toLocaleString("en-US")}`)
+}
+// Confirmed output (2026-04-18):
+// Luxembourg 2024 $135,605
+// Norway 2024 $105,056
+// ...
 ```
 
 ### Full pagination (fetch all pages)
 
-```python
-from helpers import http_get
-import json
+```ts
+// Fetch all pages of a World Bank API endpoint.
+async function fetch_all_pages(base_url: string) {
+  const all_rows: any[] = []
+  let page = 1
+  while (true) {
+    const url = base_url.includes("?") ? `${base_url}&page=${page}` : `${base_url}?page=${page}`
+    const d = JSON.parse(await http_get(url))
+    const [meta, rows] = [d[0], d[1]]
+    all_rows.push(...rows)
+    if (page >= meta.pages) break
+    page += 1
+  }
+  return all_rows
+}
 
-def fetch_all_pages(base_url):
-    """Fetch all pages of a World Bank API endpoint."""
-    all_rows = []
-    page = 1
-    while True:
-        url = f"{base_url}&page={page}" if "?" in base_url else f"{base_url}?page={page}"
-        d = json.loads(http_get(url))
-        meta, rows = d[0], d[1]
-        all_rows.extend(rows)
-        if page >= meta["pages"]:
-            break
-        page += 1
-    return all_rows
-
-# Example: all US GDP data (66 years, 2 pages)
-rows = fetch_all_pages(
-    "https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD"
-    "?format=json&per_page=50"
+// Example: all US GDP data (66 years, 2 pages)
+const rows = await fetch_all_pages(
+  "https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD" +
+  "?format=json&per_page=50"
 )
-print(f"Total rows: {len(rows)}")  # 66
-non_null = [(r["date"], r["value"]) for r in rows if r["value"] is not None]
-print(f"Non-null: {len(non_null)}, range: {non_null[-1][0]}–{non_null[0][0]}")
+console.log(`Total rows: ${rows.length}`)  // 66
+const non_null = rows.filter((r) => r.value !== null).map((r) => [r.date, r.value])
+console.log(`Non-null: ${non_null.length}, range: ${non_null.at(-1)![0]}–${non_null[0][0]}`)
 ```
 
 ### Indicators list (discover available indicators)
 
-```python
-from helpers import http_get
-import json
+```ts
+const raw = await http_get("https://api.worldbank.org/v2/indicator?format=json&per_page=50")
+const d = JSON.parse(raw)
+const meta = d[0]
+console.log(`Total indicators: ${meta.total}, pages: ${meta.pages}`)
+// Confirmed: 29,511 indicators across 591 pages
 
-raw = http_get("https://api.worldbank.org/v2/indicator?format=json&per_page=50")
-d = json.loads(raw)
-meta = d[0]
-print(f"Total indicators: {meta['total']}, pages: {meta['pages']}")
-# Confirmed: 29,511 indicators across 591 pages
-
-for ind in d[1][:3]:
-    print(ind["id"], "-", ind["name"])
-# 1.0.HCount.1.90usd - Poverty Headcount ($1.90 a day)
-# ...
+for (const ind of d[1].slice(0, 3)) {
+  console.log(ind.id, "-", ind.name)
+}
+// 1.0.HCount.1.90usd - Poverty Headcount ($1.90 a day)
+// ...
 ```
 
 ### Indicators by topic
 
-```python
-from helpers import http_get
-import json
+```ts
+// Topic 3 = Economy & Growth
+const raw = await http_get("https://api.worldbank.org/v2/topic/3/indicator?format=json&per_page=50")
+const d = JSON.parse(raw)
+console.log(`Economy & Growth indicators: ${d[0].total}`)  // 306
 
-# Topic 3 = Economy & Growth
-raw = http_get("https://api.worldbank.org/v2/topic/3/indicator?format=json&per_page=50")
-d = json.loads(raw)
-print(f"Economy & Growth indicators: {d[0]['total']}")  # 306
-
-for ind in d[1][:5]:
-    print(ind["id"], "-", ind["name"])
+for (const ind of d[1].slice(0, 5)) {
+  console.log(ind.id, "-", ind.name)
+}
 ```
 
 ### Country metadata
 
-```python
-from helpers import http_get
-import json
+```ts
+let raw = await http_get("https://api.worldbank.org/v2/country/US?format=json")
+let d = JSON.parse(raw)
+const c = d[1][0]
+console.log(c.name, c.capitalCity, c.region.value, c.incomeLevel.value)
+// United States  Washington D.C.  North America  High income
 
-raw = http_get("https://api.worldbank.org/v2/country/US?format=json")
-d = json.loads(raw)
-c = d[1][0]
-print(c["name"], c["capitalCity"], c["region"]["value"], c["incomeLevel"]["value"])
-# United States  Washington D.C.  North America  High income
-
-# Filter countries by income level
-raw = http_get("https://api.worldbank.org/v2/country?format=json&incomeLevel=LIC&per_page=300")
-d = json.loads(raw)
-print(f"Low-income countries: {d[0]['total']}")  # 25
+// Filter countries by income level
+raw = await http_get("https://api.worldbank.org/v2/country?format=json&incomeLevel=LIC&per_page=300")
+d = JSON.parse(raw)
+console.log(`Low-income countries: ${d[0].total}`)  // 25
 ```
 
 ### Topics list
 
-```python
-from helpers import http_get
-import json
-
-raw = http_get("https://api.worldbank.org/v2/topics?format=json")
-d = json.loads(raw)
-for t in d[1]:
-    print(t["id"], t["value"])
-# 1  Agriculture & Rural Development
-# 2  Aid Effectiveness
-# 3  Economy & Growth
-# ... (21 topics total)
+```ts
+const raw = await http_get("https://api.worldbank.org/v2/topics?format=json")
+const d = JSON.parse(raw)
+for (const t of d[1]) {
+  console.log(t.id, t.value)
+}
+// 1  Agriculture & Rural Development
+// 2  Aid Effectiveness
+// 3  Economy & Growth
+// ... (21 topics total)
 ```
 
-### Parallel fetch for multiple indicators (ThreadPoolExecutor)
+### Parallel fetch for multiple indicators (Promise.all)
 
-```python
-from helpers import http_get
-from concurrent.futures import ThreadPoolExecutor
-import json
-
-INDICATORS = {
-    "NY.GDP.MKTP.CD": "GDP (current US$)",
-    "SP.POP.TOTL": "Population",
-    "NY.GDP.PCAP.CD": "GDP per capita",
+```ts
+const INDICATORS: Record<string, string> = {
+  "NY.GDP.MKTP.CD": "GDP (current US$)",
+  "SP.POP.TOTL": "Population",
+  "NY.GDP.PCAP.CD": "GDP per capita",
 }
 
-def fetch_indicator(ind_id):
-    url = (
-        f"https://api.worldbank.org/v2/country/US/indicator/{ind_id}"
-        f"?format=json&mrv=5"
-    )
-    d = json.loads(http_get(url))
-    return ind_id, d[1]
+async function fetch_indicator(ind_id: string): Promise<[string, any[]]> {
+  const url =
+    `https://api.worldbank.org/v2/country/US/indicator/${ind_id}` +
+    `?format=json&mrv=5`
+  const d = JSON.parse(await http_get(url))
+  return [ind_id, d[1]]
+}
 
-with ThreadPoolExecutor(max_workers=3) as ex:
-    results = dict(ex.map(lambda i: fetch_indicator(i), INDICATORS))
+const results = Object.fromEntries(await Promise.all(Object.keys(INDICATORS).map(fetch_indicator)))
 
-for ind_id, rows in results.items():
-    latest = next((r for r in rows if r["value"] is not None), None)
-    if latest:
-        print(f"{INDICATORS[ind_id]}: {latest['date']} = {latest['value']:,.2f}")
+for (const [ind_id, rows] of Object.entries(results)) {
+  const latest = rows.find((r: any) => r.value !== null)
+  if (latest) {
+    const v = latest.value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    console.log(`${INDICATORS[ind_id]}: ${latest.date} = ${v}`)
+  }
+}
 ```
 
 ## URL reference
@@ -331,26 +309,26 @@ Country metadata endpoint returns same 2-element shape but with country objects 
 
 ## Gotchas
 
-- **Response is always a 2-element array, not a dict.** `d = json.loads(raw)` gives a list. `d[0]` is pagination metadata, `d[1]` is the data list. Accessing `d["page"]` raises `TypeError`. This is the most common mistake.
+- **Response is always a 2-element array, not a dict.** `const d = JSON.parse(raw)` gives an array. `d[0]` is pagination metadata, `d[1]` is the data array. Accessing `d.page` returns `undefined`. This is the most common mistake.
 
-- **`value` can be null.** Recent years (e.g. 2025) and data-sparse countries frequently have `null` values. Always check `if r["value"] is not None` before using. Use `mrv=N` to skip nulls automatically.
+- **`value` can be null.** Recent years (e.g. 2025) and data-sparse countries frequently have `null` values. Always check `if (r.value !== null)` before using. Use `mrv=N` to skip nulls automatically.
 
-- **Always append `?format=json`.** The default response format is XML. Without `format=json`, you get an XML string that fails `json.loads`.
+- **Always append `?format=json`.** The default response format is XML. Without `format=json`, you get an XML string that fails `JSON.parse`.
 
-- **`all/indicator/{id}` includes regional aggregates.** The "all countries" endpoint returns 266 entries including aggregated regions like "Africa Eastern and Southern" (`id: "ZH"`). Filter to real countries with `len(r["country"]["id"]) == 2` (ISO2 codes are always 2 chars; aggregate codes are 2-3 chars but with non-standard values).
+- **`all/indicator/{id}` includes regional aggregates.** The "all countries" endpoint returns 266 entries including aggregated regions like "Africa Eastern and Southern" (`id: "ZH"`). Filter to real countries with `r.country.id.length === 2` (ISO2 codes are always 2 chars; aggregate codes are 2-3 chars but with non-standard values).
 
 - **Semicolons in URL path, not query string.** Multi-country requests use `country/US;CN;GB/indicator/...` not `?countries=US,CN,GB`. Commas do not work.
 
 - **HTTP 302 redirects HTTP to HTTPS.** Always use `https://` directly to avoid an extra round trip.
 
-- **`per_page` in metadata is sometimes a string, sometimes an integer.** The API returns `"per_page": "50"` (string) for some endpoints and `"per_page": 50` (int) for others. Don't compare with `==` without casting: `int(meta["per_page"])`.
+- **`per_page` in metadata is sometimes a string, sometimes an integer.** The API returns `"per_page": "50"` (string) for some endpoints and `"per_page": 50` (int) for others. Don't compare with `==` without casting: `Number(meta.per_page)`.
 
-- **Invalid country codes return an error object, not a 2-element array.** A bad code gives `[{"message": [{"id": "120", "key": "Invalid value", ...}]}]` — a 1-element list with an error dict. Check `if isinstance(d[0], dict) and "message" in d[0]` before accessing `d[1]`.
+- **Invalid country codes return an error object, not a 2-element array.** A bad code gives `[{"message": [{"id": "120", "key": "Invalid value", ...}]}]` — a 1-element array with an error object. Check `if (d[0] && "message" in d[0])` before accessing `d[1]`.
 
 - **`mrv` + `gapfill=Y` forward-fills the latest value into future years.** If 2024 is the latest data point and `mrv=3`, `gapfill=Y` returns 2025 (the current year) with the 2024 value copied in. Useful for "current" lookups, but the filled date is misleading.
 
-- **No rate limit documented, but 3 req/s sustained is safe.** The API handles bursts (parallel ThreadPoolExecutor with `max_workers=3`) without issue. For crawling thousands of indicators, add `time.sleep(0.5)` between pages.
+- **No rate limit documented, but 3 req/s sustained is safe.** The API handles bursts (3 parallel requests via `Promise.all`) without issue. For crawling thousands of indicators, add `await wait(0.5)` between pages.
 
-- **`date` range returns records newest-first.** Results within a date range are sorted descending by year. If you need ascending order, sort after fetching: `sorted(rows, key=lambda r: r["date"])`.
+- **`date` range returns records newest-first.** Results within a date range are sorted descending by year. If you need ascending order, sort after fetching: `[...rows].sort((a, b) => a.date.localeCompare(b.date))`.
 
 - **Indicator IDs are case-sensitive.** `ny.gdp.mktp.cd` returns an error; use the uppercase dot-separated form `NY.GDP.MKTP.CD`.

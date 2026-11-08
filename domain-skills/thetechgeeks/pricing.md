@@ -6,10 +6,10 @@
 
 **Hit the `.js` endpoint, not the DOM.** Shopify exposes canonical product JSON — no scraping, no screenshots.
 
-```python
-import json
-d = json.loads(http_get(f"https://thetechgeeks.com/products/{handle}.js"))
-# {'title', 'price' (AUD cents — divide by 100), 'available', 'variants', 'compare_at_price', ...}
+```ts
+const handle = "unifi-dream-machine-pro-max" // product slug from the URL
+const d = JSON.parse(await http_get(`https://thetechgeeks.com/products/${handle}.js`))
+// {title, price (AUD cents — divide by 100), available, variants, compare_at_price, ...}
 ```
 
 Use this for title / SKU / price. One `http_get` replaces `goto + wait_for_load + screenshot + regex`.
@@ -49,4 +49,4 @@ Slugs are long marketing titles, not SKUs. Don't guess. Two reliable shortcuts:
 
 ## Don't use a browser for this
 
-Product pages are static HTML + one JSON endpoint. `http_get` over `asyncio`/`ThreadPoolExecutor` fetches all SKUs in <5s. CDP is wasted here unless you need to click through a cart / checkout flow.
+Product pages are static HTML + one JSON endpoint. `http_get` under `Promise.all` fetches all SKUs in <5s. CDP is wasted here unless you need to click through a cart / checkout flow.

@@ -9,9 +9,9 @@ The agent writes what's missing, mid-task. No framework, no recipes, no rails. O
 ```
   ● agent: wants to upload a file
   │
-  ● helpers.py → upload_file() missing
+  ● helpers.ts → upload_file() missing
   │
-  ● agent edits the harness and writes it    helpers.py   192 → 199 lines
+  ● agent edits the harness and writes it    helpers.ts   259 → 266 lines
   │                                                       + upload_file()
   ✓ file uploaded
 ```
@@ -25,7 +25,7 @@ Paste into Claude Code or Codex:
 ```text
 Set up https://github.com/browser-use/browser-harness for me.
 
-Read `install.md` first to install and connect this repo to my real browser. Then read `SKILL.md` for normal usage. Always read `helpers.py` because that is where the functions are. When you open a setup or verification tab, activate it so I can see the active browser tab. After it is installed, open this repository in my browser and, if I am logged in to GitHub, ask me whether you should star it for me as a quick demo that the interaction works — only click the star if I say yes. If I am not logged in, just go to browser-use.com.
+Read `install.md` first to install and connect this repo to my real browser. Then read `SKILL.md` for normal usage. Always read `helpers.ts` because that is where the functions are. When you open a setup or verification tab, activate it so I can see the active browser tab. After it is installed, open this repository in my browser and, if I am logged in to GitHub, ask me whether you should star it for me as a quick demo that the interaction works — only click the star if I say yes. If I am not logged in, just go to browser-use.com.
 ```
 
 When this page appears, tick the checkbox so the agent can connect to your browser:
@@ -41,13 +41,13 @@ Useful for sub-agents or deployment. **Free tier: 3 concurrent browsers, no card
 - Grab a key at [cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key)
 - Or let the agent sign up itself via [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) (setup flow + challenge context included).
 
-## How simple is it? (~592 lines of Python)
+## How simple is it? (~1,150 lines of TypeScript, run by Bun)
 
 - `install.md` — first-time install and browser bootstrap
 - `SKILL.md` — day-to-day usage
-- `run.py` (~36 lines) — runs plain Python with helpers preloaded
-- `helpers.py` (~195 lines) — starting tool calls; the agent edits these
-- `admin.py` + `daemon.py` (~361 lines) — daemon bootstrap plus the CDP websocket and socket bridge
+- `run.ts` (~56 lines) — runs plain TypeScript with helpers preloaded (top-level await)
+- `helpers.ts` (~266 lines) — starting tool calls, all async; the agent edits these
+- `admin.ts` + `daemon.ts` (~810 lines) — daemon bootstrap plus the CDP websocket and socket bridge
 
 ## Contributing
 

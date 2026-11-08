@@ -6,3 +6,4 @@ bun tests/parity.ts
 bun tests/helper-parity.ts
 bun tests/recovery.ts
 bun tests/runner.ts
+bun tests/doc-snippets.ts

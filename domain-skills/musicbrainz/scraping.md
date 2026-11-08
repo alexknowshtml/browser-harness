@@ -11,18 +11,16 @@ Field-tested against musicbrainz.org on 2026-04-18.
 
 **The MusicBrainz Web Service API (ws/2) returns clean JSON for all entity types — no browser needed.**
 
-```python
-from helpers import http_get
-import json
+```ts
+// REQUIRED: every request must include this header or you get HTTP 403
+const UA = {"User-Agent": "browser-harness/1.0 (your@email.com)"};
 
-# REQUIRED: every request must include this header or you get HTTP 403
-UA = {"User-Agent": "browser-harness/1.0 (your@email.com)"}
-
-data = json.loads(http_get("https://musicbrainz.org/ws/2/artist/?query=queen&fmt=json&limit=5", headers=UA))
-for a in data['artists']:
-    print(a['id'], a['name'], a.get('type'), a.get('country'), a['score'])
-# 0383dadf-2a4e-4d10-a46a-e9e041da8eb3  Queen  Group  GB  100
-# 79239441-bfd5-4981-a70c-55c3f15c1287  Madonna  Person  US  73
+const data = JSON.parse(await http_get("https://musicbrainz.org/ws/2/artist/?query=queen&fmt=json&limit=5", UA));
+for (const a of data.artists) {
+  console.log(a.id, a.name, a.type, a.country, a.score);
+}
+// 0383dadf-2a4e-4d10-a46a-e9e041da8eb3  Queen  Group  GB  100
+// 79239441-bfd5-4981-a70c-55c3f15c1287  Madonna  Person  US  73
 ```
 
 `User-Agent` is **mandatory** — omitting it returns HTTP 403 immediately. Format: `AppName/Version (contact@email.com)`.
@@ -48,260 +46,273 @@ All entities share the same MBID (MusicBrainz ID) format: UUID v4, e.g. `0383dad
 
 ### Artist search
 
-```python
-from helpers import http_get
-import json
+```ts
+const UA = {"User-Agent": "browser-harness/1.0 (your@email.com)"};
 
-UA = {"User-Agent": "browser-harness/1.0 (your@email.com)"}
-
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/artist/?query=queen&fmt=json&limit=5",
-    headers=UA
-))
-# resp keys: count (total matches), offset, artists (list)
-for a in resp['artists']:
-    print(a['id'])           # MBID: 0383dadf-2a4e-4d10-a46a-e9e041da8eb3
-    print(a['name'])         # Queen
-    print(a['sort-name'])    # Queen  (differs for persons: "Bowie, David")
-    print(a.get('type'))     # Group / Person / Orchestra / Choir
-    print(a.get('country'))  # GB
-    print(a.get('life-span'))# {'begin': '1970-06-27', 'end': None, 'ended': True}
-    print(a.get('disambiguation', ''))  # e.g. "English singer-songwriter"
-    print(a['score'])        # relevance 0-100
+const resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/artist/?query=queen&fmt=json&limit=5",
+  UA
+));
+// resp keys: count (total matches), offset, artists (list)
+for (const a of resp.artists) {
+  console.log(a.id);                    // MBID: 0383dadf-2a4e-4d10-a46a-e9e041da8eb3
+  console.log(a.name);                  // Queen
+  console.log(a["sort-name"]);          // Queen  (differs for persons: "Bowie, David")
+  console.log(a.type);                  // Group / Person / Orchestra / Choir
+  console.log(a.country);               // GB
+  console.log(a["life-span"]);          // {begin: '1970-06-27', end: null, ended: true}
+  console.log(a.disambiguation ?? "");  // e.g. "English singer-songwriter"
+  console.log(a.score);                 // relevance 0-100
+}
 ```
 
 ### Artist by MBID (with related data via `inc=`)
 
-```python
-# inc= parameters stack with + between them
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/artist/0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
-    "?inc=releases+tags+ratings+release-groups&fmt=json",
-    headers=UA
-))
-print(resp['name'])      # Queen
-print(resp['type'])      # Group
-print(resp['country'])   # GB
-print(resp['life-span']) # {'begin': '1970-06-27', 'end': None, 'ended': True}
+```ts
+// inc= parameters stack with + between them
+const resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/artist/0383dadf-2a4e-4d10-a46a-e9e041da8eb3"
+  + "?inc=releases+tags+ratings+release-groups&fmt=json",
+  UA
+));
+console.log(resp.name);          // Queen
+console.log(resp.type);          // Group
+console.log(resp.country);       // GB
+console.log(resp["life-span"]);  // {begin: '1970-06-27', end: null, ended: true}
 
-# Tags (community-voted genre labels, sorted by count)
-tags = sorted(resp.get('tags', []), key=lambda x: x['count'], reverse=True)
-print([t['name'] for t in tags[:5]])
-# ['rock', 'glam rock', 'hard rock', 'art rock', 'british']
+// Tags (community-voted genre labels, sorted by count)
+const tags = [...(resp.tags ?? [])].sort((x, y) => y.count - x.count);
+console.log(tags.slice(0, 5).map((t) => t.name));
+// ['rock', 'glam rock', 'hard rock', 'art rock', 'british']
 
-# Rating (community score, 0-5)
-print(resp.get('rating'))  # {'votes-count': 43, 'value': 4.7}
+// Rating (community score, 0-5)
+console.log(resp.rating);  // {'votes-count': 43, value: 4.7}
 
-# Direct releases (up to 25 per request — use browse for full list)
-for r in resp.get('releases', []):
-    print(r['id'], r['title'], r.get('date'))
+// Direct releases (up to 25 per request — use browse for full list)
+for (const r of resp.releases ?? []) {
+  console.log(r.id, r.title, r.date);
+}
 
-# Release groups (albums, singles, EPs — deduplicated by edition)
-for rg in resp.get('release-groups', []):
-    print(rg['id'], rg['title'], rg.get('primary-type'), rg.get('first-release-date'))
-# 6b47c9a0  A Night at the Opera  Album  1975-11-21
-# 002ed683  Sheer Heart Attack    Album  1974-11-01
+// Release groups (albums, singles, EPs — deduplicated by edition)
+for (const rg of resp["release-groups"] ?? []) {
+  console.log(rg.id, rg.title, rg["primary-type"], rg["first-release-date"]);
+}
+// 6b47c9a0  A Night at the Opera  Album  1975-11-21
+// 002ed683  Sheer Heart Attack    Album  1974-11-01
 ```
 
 ### Browse releases by artist (full list)
 
-```python
-# Browse API: uses 'artist' param (not 'query') — response key is 'release-count' not 'count'
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/release/"
-    "?artist=0383dadf-2a4e-4d10-a46a-e9e041da8eb3&fmt=json&limit=25&offset=0",
-    headers=UA
-))
-print(resp['release-count'])   # 1635 — total releases for this artist
-for r in resp['releases']:
-    print(r['id'], r['title'], r.get('date'), r.get('country'), r.get('status'))
-    # Also has: cover-art-archive.artwork (bool), cover-art-archive.front (bool)
-    caa = r.get('cover-art-archive', {})
-    print(caa.get('artwork'), caa.get('front'), caa.get('count'))
+```ts
+// Browse API: uses 'artist' param (not 'query') — response key is 'release-count' not 'count'
+const resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/release/"
+  + "?artist=0383dadf-2a4e-4d10-a46a-e9e041da8eb3&fmt=json&limit=25&offset=0",
+  UA
+));
+console.log(resp["release-count"]);   // 1635 — total releases for this artist
+for (const r of resp.releases) {
+  console.log(r.id, r.title, r.date, r.country, r.status);
+  // Also has: cover-art-archive.artwork (bool), cover-art-archive.front (bool)
+  const caa = r["cover-art-archive"] ?? {};
+  console.log(caa.artwork, caa.front, caa.count);
+}
 
-# Paginate: increment offset by limit
+// Paginate: increment offset by limit
 ```
 
 ### Release search and lookup
 
-```python
-# Search by title
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/release/?query=dark+side+of+the+moon&fmt=json&limit=5",
-    headers=UA
-))
-# resp keys: count, offset, releases
+```ts
+// Search by title
+const resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/release/?query=dark+side+of+the+moon&fmt=json&limit=5",
+  UA
+));
+// resp keys: count, offset, releases
 
-# Full release with track list, artists, and labels
-release = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/release/b84ee12a-09ef-421b-82de-0441a926375b"
-    "?inc=artists+recordings+labels+release-groups&fmt=json",
-    headers=UA
-))
-print(release['title'])   # The Dark Side of the Moon
-print(release['date'])    # 1973-03-24
-print(release['status'])  # Official
-print(release['country']) # GB
+// Full release with track list, artists, and labels
+const release = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/release/b84ee12a-09ef-421b-82de-0441a926375b"
+  + "?inc=artists+recordings+labels+release-groups&fmt=json",
+  UA
+));
+console.log(release.title);    // The Dark Side of the Moon
+console.log(release.date);     // 1973-03-24
+console.log(release.status);   // Official
+console.log(release.country);  // GB
 
-# Release group (the "album concept", deduplicates editions)
-rg = release.get('release-group', {})
-print(rg['title'], rg.get('primary-type'), rg['id'])
-# The Dark Side of the Moon  Album  f5093c06-23e3-404f-aeaa-40f72885ee3a
+// Release group (the "album concept", deduplicates editions)
+const rg = release["release-group"] ?? {};
+console.log(rg.title, rg["primary-type"], rg.id);
+// The Dark Side of the Moon  Album  f5093c06-23e3-404f-aeaa-40f72885ee3a
 
-# Artist credit
-for ac in release.get('artist-credit', []):
-    if isinstance(ac, dict) and 'artist' in ac:
-        print(ac['artist']['name'], ac['artist']['id'])
-        # Pink Floyd  83d91898-7763-47d7-b03b-b92132375c47
+// Artist credit
+for (const ac of release["artist-credit"] ?? []) {
+  if (ac && typeof ac === "object" && "artist" in ac) {
+    console.log(ac.artist.name, ac.artist.id);
+    // Pink Floyd  83d91898-7763-47d7-b03b-b92132375c47
+  }
+}
 
-# Labels
-for li in release.get('label-info', []):
-    label = li.get('label', {})
-    print(label.get('name'), li.get('catalog-number'))
-    # Harvest  SHVL 804
+// Labels
+for (const li of release["label-info"] ?? []) {
+  const label = li.label ?? {};
+  console.log(label.name, li["catalog-number"]);
+  // Harvest  SHVL 804
+}
 
-# Track list (from media[].tracks[])
-for disc in release.get('media', []):
-    for track in disc.get('tracks', []):
-        dur_s = track['length'] // 1000 if track.get('length') else None
-        rec = track.get('recording', {})
-        print(track['number'], track['title'], dur_s, rec.get('id'))
-        # A1  Speak to Me  68s  bef3fddb-5aca-49f5-b2fd-d56a23268d63
-        # A2  Breathe      168s ecbc7c9b-e79d-4ec8-ac77-44e4a7f7f1b8
+// Track list (from media[].tracks[])
+for (const disc of release.media ?? []) {
+  for (const track of disc.tracks ?? []) {
+    const dur_s = track.length ? Math.floor(track.length / 1000) : null;
+    const rec = track.recording ?? {};
+    console.log(track.number, track.title, dur_s, rec.id);
+    // A1  Speak to Me  68s  bef3fddb-5aca-49f5-b2fd-d56a23268d63
+    // A2  Breathe      168s ecbc7c9b-e79d-4ec8-ac77-44e4a7f7f1b8
+  }
+}
 ```
 
 ### Recording (track) search
 
-```python
-# Use Lucene field syntax to filter by artist
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/recording/"
-    "?query=bohemian+rhapsody+AND+artist:queen&fmt=json&limit=5",
-    headers=UA
-))
-print(resp['count'])  # 419
-for r in resp['recordings']:
-    dur_s = r['length'] // 1000 if r.get('length') else None
-    artists = [ac['artist']['name'] for ac in r.get('artist-credit', []) if isinstance(ac, dict)]
-    releases = r.get('releases', [])
-    print(r['id'], r['title'], dur_s, artists, releases[0]['title'] if releases else None)
-# a4803b45  Bohemian Rhapsody  130s  ['Queen']  Rhapsody in Red
-# 40212eb6  Bohemian Rhapsody  338s  ['Queen']  1986-07: Wembley Stadium
+```ts
+// Use Lucene field syntax to filter by artist
+const resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/recording/"
+  + "?query=bohemian+rhapsody+AND+artist:queen&fmt=json&limit=5",
+  UA
+));
+console.log(resp.count);  // 419
+for (const r of resp.recordings) {
+  const dur_s = r.length ? Math.floor(r.length / 1000) : null;
+  const artists = (r["artist-credit"] ?? []).filter((ac: any) => ac && typeof ac === "object").map((ac: any) => ac.artist.name);
+  const releases = r.releases ?? [];
+  console.log(r.id, r.title, dur_s, artists, releases.length ? releases[0].title : null);
+}
+// a4803b45  Bohemian Rhapsody  130s  ['Queen']  Rhapsody in Red
+// 40212eb6  Bohemian Rhapsody  338s  ['Queen']  1986-07: Wembley Stadium
 ```
 
 ### Release-group search (deduplicated albums)
 
-```python
-# Use release-group endpoint to avoid getting every regional edition
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/release-group/"
-    "?query=release-group:\"A+Night+at+the+Opera\"+AND+artist:queen&fmt=json&limit=5",
-    headers=UA
-))
-# resp keys: count, release-groups
-for rg in resp.get('release-groups', []):
-    print(rg['id'], rg['title'], rg.get('primary-type'), rg.get('first-release-date'), rg['score'])
-# 6b47c9a0  A Night at the Opera  Album  1975-11-21  100
+```ts
+// Use release-group endpoint to avoid getting every regional edition
+let resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/release-group/"
+  + "?query=release-group:\"A+Night+at+the+Opera\"+AND+artist:queen&fmt=json&limit=5",
+  UA
+));
+// resp keys: count, release-groups
+for (const rg of resp["release-groups"] ?? []) {
+  console.log(rg.id, rg.title, rg["primary-type"], rg["first-release-date"], rg.score);
+}
+// 6b47c9a0  A Night at the Opera  Album  1975-11-21  100
 
-# Browse release-groups for an artist
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/release-group/"
-    "?artist=0383dadf-2a4e-4d10-a46a-e9e041da8eb3&fmt=json&limit=25",
-    headers=UA
-))
-print(resp['release-group-count'])  # 412
-for rg in resp.get('release-groups', []):
-    print(rg['title'], rg.get('primary-type'), rg.get('first-release-date'))
+// Browse release-groups for an artist
+resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/release-group/"
+  + "?artist=0383dadf-2a4e-4d10-a46a-e9e041da8eb3&fmt=json&limit=25",
+  UA
+));
+console.log(resp["release-group-count"]);  // 412
+for (const rg of resp["release-groups"] ?? []) {
+  console.log(rg.title, rg["primary-type"], rg["first-release-date"]);
+}
 ```
 
 ### Label and work lookups
 
-```python
-# Label search
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/label/?query=EMI&fmt=json&limit=3",
-    headers=UA
-))
-for l in resp['labels']:
-    print(l['id'], l['name'], l.get('type'), l.get('country'), l['score'])
-# c029628b  EMI  Original Production  GB  100
+```ts
+// Label search
+let resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/label/?query=EMI&fmt=json&limit=3",
+  UA
+));
+for (const l of resp.labels) {
+  console.log(l.id, l.name, l.type, l.country, l.score);
+}
+// c029628b  EMI  Original Production  GB  100
 
-# Work (song composition — author-level, not performance-level)
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/work/?query=bohemian+rhapsody&fmt=json&limit=3",
-    headers=UA
-))
-for w in resp['works']:
-    print(w['id'], w['title'], w.get('type'), w['score'])
-# 41c94a08  Bohemian Rhapsody  Song  100
+// Work (song composition — author-level, not performance-level)
+resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/work/?query=bohemian+rhapsody&fmt=json&limit=3",
+  UA
+));
+for (const w of resp.works) {
+  console.log(w.id, w.title, w.type, w.score);
+}
+// 41c94a08  Bohemian Rhapsody  Song  100
 ```
 
 ### Cover Art Archive
 
-```python
-# Get cover art for a release MBID
-# 404 if no artwork has been uploaded for that release
-def get_cover_art(release_mbid, size="500"):
-    """
-    size: '250', '500', '1200', or 'full' (original file)
-    Returns the front cover URL, or None if no artwork exists.
-    """
-    try:
-        resp = json.loads(http_get(
-            f"https://coverartarchive.org/release/{release_mbid}",
-            headers=UA
-        ))
-    except Exception:
-        return None   # 404 = no art uploaded
+```ts
+// Get cover art for a release MBID
+// 404 if no artwork has been uploaded for that release
+async function get_cover_art(release_mbid: string, size = "500") {
+  /*
+  size: '250', '500', '1200', or 'full' (original file)
+  Returns the front cover URL, or null if no artwork exists.
+  */
+  let resp: any;
+  try {
+    resp = JSON.parse(await http_get(
+      `https://coverartarchive.org/release/${release_mbid}`,
+      UA
+    ));
+  } catch {
+    return null;   // 404 = no art uploaded
+  }
 
-    images = resp.get('images', [])
-    # Prefer an image flagged as front=True
-    front = next((img for img in images if img.get('front')), None)
-    img = front or (images[0] if images else None)
-    if not img:
-        return None
+  const images = resp.images ?? [];
+  // Prefer an image flagged as front=true
+  const front = images.find((img: any) => img.front) ?? null;
+  const img = front || (images.length ? images[0] : null);
+  if (!img) return null;
 
-    if size == 'full':
-        return img['image']
-    return img['thumbnails'].get(size) or img['thumbnails'].get('large')
+  if (size === "full") return img.image;
+  return img.thumbnails[size] || img.thumbnails.large;
+}
 
-# Thumbnail sizes confirmed: '250', '500', '1200', 'small' (=250), 'large' (=500)
+// Thumbnail sizes confirmed: '250', '500', '1200', 'small' (=250), 'large' (=500)
 
-url = get_cover_art("b84ee12a-09ef-421b-82de-0441a926375b")
-# http://coverartarchive.org/release/b84ee12a.../1611507818-500.jpg
+const url = await get_cover_art("b84ee12a-09ef-421b-82de-0441a926375b");
+// http://coverartarchive.org/release/b84ee12a.../1611507818-500.jpg
 
-# Full images response structure
-resp = json.loads(http_get(
-    "https://coverartarchive.org/release/b84ee12a-09ef-421b-82de-0441a926375b",
-    headers=UA
-))
-for img in resp['images']:
-    print(img.get('types'))   # ['Front'], ['Back'], ['Liner'], ['Poster'], ['Medium'], ['Sticker'], ['Other']
-    print(img.get('front'))   # True only for front=True flagged images (not all 'Front' types)
-    print(img.get('approved'))# True/False
-    print(img['image'])       # full resolution URL
-    print(img['thumbnails'])  # {'small': '...-250.jpg', 'large': '...-500.jpg', '250': ..., '500': ..., '1200': ...}
+// Full images response structure
+const resp = JSON.parse(await http_get(
+  "https://coverartarchive.org/release/b84ee12a-09ef-421b-82de-0441a926375b",
+  UA
+));
+for (const img of resp.images) {
+  console.log(img.types);       // ['Front'], ['Back'], ['Liner'], ['Poster'], ['Medium'], ['Sticker'], ['Other']
+  console.log(img.front);       // true only for front=true flagged images (not all 'Front' types)
+  console.log(img.approved);    // true/false
+  console.log(img.image);       // full resolution URL
+  console.log(img.thumbnails);  // {small: '...-250.jpg', large: '...-500.jpg', '250': ..., '500': ..., '1200': ...}
+}
 ```
 
 ### Lucene query syntax for search
 
 All search endpoints support Lucene field queries:
 
-```python
-# Field search: artist:, type:, country:, tag:, release:, date:
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/artist/"
-    "?query=artist:queen+AND+type:group+AND+country:GB&fmt=json&limit=5",
-    headers=UA
-))
-# count: 23 (exact matches only)
+```ts
+// Field search: artist:, type:, country:, tag:, release:, date:
+let resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/artist/"
+  + "?query=artist:queen+AND+type:group+AND+country:GB&fmt=json&limit=5",
+  UA
+));
+// count: 23 (exact matches only)
 
-# Phrase search with quotes
-resp = json.loads(http_get(
-    "https://musicbrainz.org/ws/2/release/"
-    '?query=release:"A+Night+at+the+Opera"+AND+artist:queen&fmt=json&limit=5',
-    headers=UA
-))
+// Phrase search with quotes
+resp = JSON.parse(await http_get(
+  "https://musicbrainz.org/ws/2/release/"
+  + '?query=release:"A+Night+at+the+Opera"+AND+artist:queen&fmt=json&limit=5',
+  UA
+));
 ```
 
 Common Lucene field names per entity:
@@ -312,59 +323,56 @@ Common Lucene field names per entity:
 
 ### Parallel fetching
 
-```python
-from concurrent.futures import ThreadPoolExecutor
+```ts
+const UA = {"User-Agent": "browser-harness/1.0 (your@email.com)"};
 
-UA = {"User-Agent": "browser-harness/1.0 (your@email.com)"}
+async function fetch_artist(mbid: string) {
+  const resp = JSON.parse(await http_get(
+    `https://musicbrainz.org/ws/2/artist/${mbid}?inc=tags&fmt=json`,
+    UA
+  ));
+  const tags = [...(resp.tags ?? [])].sort((x, y) => y.count - x.count).slice(0, 3).map((t) => t.name);
+  return {name: resp.name, type: resp.type, tags};
+}
 
-def fetch_artist(mbid):
-    resp = json.loads(http_get(
-        f"https://musicbrainz.org/ws/2/artist/{mbid}?inc=tags&fmt=json",
-        headers=UA
-    ))
-    tags = [t['name'] for t in sorted(resp.get('tags', []), key=lambda x: x['count'], reverse=True)[:3]]
-    return {"name": resp['name'], "type": resp.get('type'), "tags": tags}
+const mbids = [
+  "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",  // Queen
+  "83d91898-7763-47d7-b03b-b92132375c47",  // Pink Floyd
+  "678d88b2-87b0-403b-b63d-5da7465aecc3",  // Led Zeppelin
+];
 
-mbids = [
-    "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",  # Queen
-    "83d91898-7763-47d7-b03b-b92132375c47",  # Pink Floyd
-    "678d88b2-87b0-403b-b63d-5da7465aecc3",  # Led Zeppelin
-]
-
-with ThreadPoolExecutor(max_workers=3) as ex:
-    results = list(ex.map(fetch_artist, mbids))
-# 3 artists fetched in ~0.79s total
+const results = await Promise.all(mbids.map(fetch_artist));
+// 3 artists fetched in ~0.79s total
 ```
 
-Tested: 5-6 rapid sequential requests all succeed. Parallel requests at 3x concurrency succeed. Real 429s (rate-limit blocks) are only hit at very high burst rates; if you do get a 429, add `time.sleep(1)` between requests.
+Tested: 5-6 rapid sequential requests all succeed. Parallel requests at 3x concurrency succeed. Real 429s (rate-limit blocks) are only hit at very high burst rates; if you do get a 429, add `await wait(1)` between requests.
 
 ### Pagination
 
-```python
-import time
+```ts
+const UA = {"User-Agent": "browser-harness/1.0 (your@email.com)"};
 
-UA = {"User-Agent": "browser-harness/1.0 (your@email.com)"}
+async function browse_all_releases(artist_mbid: string, page_size = 25) {
+  // Fetch all releases for an artist across multiple pages.
+  let offset = 0;
+  let total: number | null = null;
+  const releases: any[] = [];
+  while (total === null || offset < total) {
+    const resp = JSON.parse(await http_get(
+      `https://musicbrainz.org/ws/2/release/`
+      + `?artist=${artist_mbid}&fmt=json&limit=${page_size}&offset=${offset}`,
+      UA
+    ));
+    total = resp["release-count"] as number;
+    const batch = resp.releases;
+    releases.push(...batch);
+    offset += batch.length;
+    if (offset < total) await wait(1);  // stay within 1 req/s for sequential pagination
+  }
+  return releases;
+}
 
-def browse_all_releases(artist_mbid, page_size=25):
-    """Fetch all releases for an artist across multiple pages."""
-    offset = 0
-    total = None
-    releases = []
-    while total is None or offset < total:
-        resp = json.loads(http_get(
-            f"https://musicbrainz.org/ws/2/release/"
-            f"?artist={artist_mbid}&fmt=json&limit={page_size}&offset={offset}",
-            headers=UA
-        ))
-        total = resp['release-count']
-        batch = resp['releases']
-        releases.extend(batch)
-        offset += len(batch)
-        if offset < total:
-            time.sleep(1)  # stay within 1 req/s for sequential pagination
-    return releases
-
-# Queen has 1635 releases — use release-groups (412) to get deduplicated albums
+// Queen has 1635 releases — use release-groups (412) to get deduplicated albums
 ```
 
 ---
@@ -415,12 +423,12 @@ Stack multiple `inc=` values with `+` between them.
 }
 
 # Recording length is always milliseconds
-recording['length'] // 1000  # => seconds
+Math.floor(recording.length / 1000)  # => seconds
 
 # Artist life-span
-life_span = artist['life-span']
-# {'begin': '1970-06-27', 'end': None, 'ended': True}
-# 'ended': True with 'end': None means end date unknown but band is inactive
+life_span = artist["life-span"]
+# {begin: '1970-06-27', end: null, ended: true}
+# ended: true with end: null means end date unknown but band is inactive
 
 # Artist credit joinphrase (for multi-artist tracks)
 # [{"name": "Simon", "artist": {...}, "joinphrase": " & "}, {"name": "Garfunkel", ...}]
@@ -469,10 +477,10 @@ MusicBrainz entity browser URL (human-readable): `https://musicbrainz.org/artist
 
 - **Cover Art Archive returns 404 for releases with no uploaded art** — Check `release['cover-art-archive']['artwork']` (boolean) from any release browse/search response before hitting the CAA endpoint. Saves an extra HTTP round-trip.
 
-- **Cover art `front=True` flag vs `types=['Front']`** — A release can have multiple images typed as 'Front' but only one (or none) flagged `front: true`. Always filter on `img.get('front') == True` for the canonical cover, not on `img.get('types') == ['Front']`.
+- **Cover art `front=True` flag vs `types=['Front']`** — A release can have multiple images typed as 'Front' but only one (or none) flagged `front: true`. Always filter on `img.front === true` for the canonical cover, not on `img.types` equal to `['Front']`.
 
 - **CAA thumbnail key names** — Both string keys `'small'` (250px) and `'large'` (500px) exist as aliases alongside numeric string keys `'250'`, `'500'`, `'1200'`. Access as `img['thumbnails']['500']` or `img['thumbnails']['large']` — both work.
 
-- **Rate limit: 1 req/s unauthenticated** — In practice, bursts of 5-6 sequential requests succeed without throttling. True 429s appear at higher rates. For sequential pagination loops, add `time.sleep(1)` between pages. For parallel fetching, limit concurrency to 3-5 workers.
+- **Rate limit: 1 req/s unauthenticated** — In practice, bursts of 5-6 sequential requests succeed without throttling. True 429s appear at higher rates. For sequential pagination loops, add `await wait(1)` between pages. For parallel fetching, limit concurrency to 3-5 at a time in `Promise.all`.
 
 - **`fmt=json` required** — Omitting it returns XML instead of JSON. Always append `&fmt=json` to every request.

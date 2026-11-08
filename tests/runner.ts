@@ -49,6 +49,9 @@ try {
     if (b.code !== 0 || a.out !== b.out) { fails++; console.log(`FAIL ts via run.ts: ${label}\n  python out: ${JSON.stringify(a.out)}\n  ts: ${JSON.stringify(b)}`); }
     else console.log(`PASS ts via run.ts: ${label} matches Python output`);
   }
+  const im = await run(["bun", "run.ts"], 'import { existsSync } from "node:fs"\nimport * as path from "node:path"\nconsole.log(existsSync("/tmp"), path.basename("/a/b"), (await page_info()).url)', env);
+  if (im.code === 0 && /^true b \S+\n$/.test(im.out)) console.log("PASS ts static imports work at top level");
+  else { fails++; console.log(`FAIL ts static imports: ${JSON.stringify(im)}`); }
   const e = await run(["bun", "run.ts"], "console.log('before')\nthrow new Error('boom')", env);
   if (e.code === 1 && e.out === "before\n" && e.err.includes("boom")) console.log("PASS ts error: exit 1, stdout kept, error on stderr");
   else { fails++; console.log(`FAIL ts error: ${JSON.stringify(e)}`); }

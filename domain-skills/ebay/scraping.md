@@ -1,6 +1,6 @@
 # eBay — Scraping & Data Extraction
 
-Field-tested against ebay.com on 2026-04-18 using `uv run python` with `http_get`.
+Field-tested against ebay.com on 2026-04-18 using the TS harness (`browser-harness <<'TS'`) with `http_get`.
 Chrome is NOT required — `http_get` returns full HTML on first access.
 
 ## Critical: Bot Detection ("Pardon Our Interruption")
@@ -9,25 +9,27 @@ eBay's bot detection fires after roughly **5–10 requests per IP in a short win
 The block page is ~13 KB, title `"Pardon Our Interruption..."`, and contains no listing data.
 
 **Always check before parsing:**
-```python
-def is_blocked(html):
-    return 'Pardon Our Interruption' in html or len(html) < 20_000
+```ts
+function is_blocked(html: string) {
+  return html.includes("Pardon Our Interruption") || html.length < 20_000;
+}
 
-html = http_get("https://www.ebay.com/sch/i.html?_nkw=laptop&LH_BIN=1", headers=HEADERS)
-if is_blocked(html):
-    raise RuntimeError("eBay bot-detection triggered — back off and retry later")
+const html = await http_get("https://www.ebay.com/sch/i.html?_nkw=laptop&LH_BIN=1", HEADERS);
+if (is_blocked(html)) {
+  throw new Error("eBay bot-detection triggered — back off and retry later");
+}
 ```
 
 **When blocked:** wait at minimum 60–120 seconds before retrying. The block is IP-session-scoped,
 not a hard IP ban; it clears after inactivity.
 
 **Headers required (minimal UA gets blocked faster, full browser UA lasts longer):**
-```python
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-}
+```ts
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+};
 ```
 
 A plain `"User-Agent": "Mozilla/5.0"` also works for the first few requests,
@@ -40,15 +42,15 @@ https://www.ebay.com/sch/i.html?_nkw={query}&{filters}
 ```
 
 Confirmed working URL examples:
-```python
-# Buy It Now only, sorted by lowest price
-"https://www.ebay.com/sch/i.html?_nkw=mechanical+keyboard&LH_BIN=1&_sop=15"
+```ts
+// Buy It Now only, sorted by lowest price
+"https://www.ebay.com/sch/i.html?_nkw=mechanical+keyboard&LH_BIN=1&_sop=15";
 
-# Auctions only
-"https://www.ebay.com/sch/i.html?_nkw=vintage+camera&LH_Auction=1"
+// Auctions only
+"https://www.ebay.com/sch/i.html?_nkw=vintage+camera&LH_Auction=1";
 
-# New condition only, page 2
-"https://www.ebay.com/sch/i.html?_nkw=laptop&LH_ItemCondition=1000&_pgn=2"
+// New condition only, page 2
+"https://www.ebay.com/sch/i.html?_nkw=laptop&LH_ItemCondition=1000&_pgn=2";
 ```
 
 ### Filter Parameters (all confirmed working)
@@ -117,88 +119,81 @@ Each result is an `<li>` element with `data-listingid=<id>`. Key elements within
 
 ### Confirmed Extractor (field-tested, 60 items from a single search)
 
-```python
-import re
+```ts
+function extract_search_results(html: string) {
+  /*
+  Parse eBay search results HTML into a list of objects.
+  Returns [] if blocked or no results.
+  */
+  if (html.includes("Pardon Our Interruption") || html.length < 20_000) return [];
 
-def extract_search_results(html):
-    """
-    Parse eBay search results HTML into a list of dicts.
-    Returns [] if blocked or no results.
-    """
-    if 'Pardon Our Interruption' in html or len(html) < 20_000:
-        return []
+  const cards = html.split(/(?=<li[^>]+data-listingid=)/);
+  const results: any[] = [];
+  const seen_ids = new Set<string>();
 
-    cards = re.split(r'(?=<li[^>]+data-listingid=)', html)
-    results = []
-    seen_ids = set()
+  for (const card of cards.slice(1)) {  // skip preamble before first card
+    // Listing ID (dedup)
+    const lid_m = card.match(/data-listingid=(\d+)/);
+    if (!lid_m) continue;
+    const listing_id = lid_m[1];
+    if (seen_ids.has(listing_id)) continue;
+    seen_ids.add(listing_id);
 
-    for card in cards[1:]:  # skip preamble before first card
-        # Listing ID (dedup)
-        lid_m = re.search(r'data-listingid=(\d+)', card)
-        if not lid_m:
-            continue
-        listing_id = lid_m.group(1)
-        if listing_id in seen_ids:
-            continue
-        seen_ids.add(listing_id)
+    // Item URL (clean, no tracking params)
+    const url_m = card.match(/href=(https:\/\/(?:www\.)?ebay\.com\/itm\/(\d+))/);
+    const item_url = url_m ? url_m[1].split("?")[0] : null;
 
-        # Item URL (clean, no tracking params)
-        url_m = re.search(r'href=(https://(?:www\.)?ebay\.com/itm/(\d+))', card)
-        item_url = url_m.group(1).split('?')[0] if url_m else None
+    // Title from s-card__title
+    const title_m = card.match(/s-card__title[^>]*>[\s\S]*?primary[^>]*>([^<]+)/);
+    const title = title_m ? title_m[1].trim() : null;
 
-        # Title from s-card__title
-        title_m = re.search(r's-card__title[^>]*>.*?primary[^>]*>([^<]+)', card, re.DOTALL)
-        title = title_m.group(1).strip() if title_m else None
+    // Skip placeholder "Shop on eBay" stub cards
+    if (!title || title === "Shop on eBay") continue;
 
-        # Skip placeholder "Shop on eBay" stub cards
-        if not title or title == 'Shop on eBay':
-            continue
+    // Current price
+    let price_m = card.match(/class=(?:["'])?[a-z- ]*price["']?>\$([0-9,\.]+)</);
+    if (!price_m) price_m = card.match(/price">\$([0-9,\.]+)</);
+    const price = price_m ? "$" + price_m[1] : null;
 
-        # Current price
-        price_m = re.search(r'class=(?:["\'])?[a-z- ]*price["\']?>\$([0-9,\.]+)<', card)
-        if not price_m:
-            price_m = re.search(r'price">\$([0-9,\.]+)<', card)
-        price = '$' + price_m.group(1) if price_m else None
+    // Original / list price (strikethrough — present when discounted)
+    const orig_m = card.match(/strikethrough[^>]*>\$([0-9,\.]+)/);
+    const original_price = orig_m ? "$" + orig_m[1] : null;
 
-        # Original / list price (strikethrough — present when discounted)
-        orig_m = re.search(r'strikethrough[^>]*>\$([0-9,\.]+)', card)
-        original_price = '$' + orig_m.group(1) if orig_m else None
+    // Thumbnail image URL
+    const img_m = card.match(/class=s-card__image[^>]*src=([^\s>]+)/);
+    const image = img_m ? img_m[1] : null;
 
-        # Thumbnail image URL
-        img_m = re.search(r'class=s-card__image[^>]*src=([^\s>]+)', card)
-        image = img_m.group(1) if img_m else None
+    results.push({
+      listing_id,
+      url: item_url,
+      title,
+      price,
+      original_price,  // null if not on sale
+      image,
+    });
+  }
 
-        results.append({
-            'listing_id': listing_id,
-            'url': item_url,
-            'title': title,
-            'price': price,
-            'original_price': original_price,  # None if not on sale
-            'image': image,
-        })
-
-    return results
+  return results;
+}
 ```
 
 **Usage:**
-```python
-from helpers import http_get
-import re
+```ts
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Accept-Language": "en-US,en;q=0.9",
+};
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9",
+const html = await http_get("https://www.ebay.com/sch/i.html?_nkw=mechanical+keyboard&LH_BIN=1&_sop=15", HEADERS);
+const items = extract_search_results(html);
+console.log(`${items.length} items`);
+for (const item of items.slice(0, 5)) {
+  console.log(`  ${item.listing_id} | ${item.title.slice(0, 50)} | ${item.price}`);
 }
-
-html = http_get("https://www.ebay.com/sch/i.html?_nkw=mechanical+keyboard&LH_BIN=1&_sop=15", headers=HEADERS)
-items = extract_search_results(html)
-print(f"{len(items)} items")
-for item in items[:5]:
-    print(f"  {item['listing_id']} | {item['title'][:50]} | {item['price']}")
-# Output (confirmed): 60 items
-# 168219240588 | One Plus Keyboard 81 Pro Winter Bonfire Mecha... | $159.00
-# 167461643107 | Logitech 920-012869 G515 TKL Wired Low Profil... | $49.99
-# 167040158614 | Logitech - PRO X TKL LIGHTSPEED Wireless Mech... | $74.99
+// Output (confirmed): 60 items
+// 168219240588 | One Plus Keyboard 81 Pro Winter Bonfire Mecha... | $159.00
+// 167461643107 | Logitech 920-012869 G515 TKL Wired Low Profil... | $49.99
+// 167040158614 | Logitech - PRO X TKL LIGHTSPEED Wireless Mech... | $74.99
 ```
 
 ## Item Detail Pages: JSON-LD (Reliable)
@@ -206,111 +201,113 @@ for item in items[:5]:
 Item detail pages at `/itm/{id}` serve **two JSON-LD blocks**: `BreadcrumbList` and `Product`.
 The `Product` schema is the most useful — it contains price, condition, availability, brand, images, and return policy.
 
-```python
-import re, json
+```ts
+function extract_item_detail(html: string) {
+  /*
+  Extract structured data from an eBay item page.
+  Returns an object, or null if blocked.
+  */
+  if (html.includes("Pardon Our Interruption")) return null;
 
-def extract_item_detail(html):
-    """
-    Extract structured data from an eBay item page.
-    Returns dict or None if blocked.
-    """
-    if 'Pardon Our Interruption' in html:
-        return None
+  const ld_blocks = [...html.matchAll(/application\/ld\+json[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  let product: any = null;
+  let breadcrumbs: any[] = [];
 
-    ld_blocks = re.findall(r'application/ld\+json[^>]*>(.*?)</script>', html, re.DOTALL)
-    product = None
-    breadcrumbs = []
-
-    for ld_str in ld_blocks:
-        try:
-            d = json.loads(ld_str.strip())
-        except Exception:
-            continue
-
-        if d.get('@type') == 'Product':
-            product = d
-        elif d.get('@type') == 'BreadcrumbList':
-            breadcrumbs = [i.get('name') for i in d.get('itemListElement', [])]
-
-    if not product:
-        return None
-
-    offers = product.get('offers', {})
-    if isinstance(offers, list):
-        offers = offers[0]
-
-    # Schema.org condition URL -> human label
-    CONDITION_MAP = {
-        'NewCondition':          'New',
-        'UsedCondition':         'Used',
-        'RefurbishedCondition':  'Refurbished',
-        'DamagedCondition':      'For Parts / Not Working',
-        'LikeNewCondition':      'Like New',
-        'VeryGoodCondition':     'Very Good',
-        'GoodCondition':         'Good',
-        'AcceptableCondition':   'Acceptable',
+  for (const ld_str of ld_blocks) {
+    let d: any;
+    try {
+      d = JSON.parse(ld_str.trim());
+    } catch {
+      continue;
     }
-    cond_url = offers.get('itemCondition', '')
-    cond_key = cond_url.split('/')[-1]  # e.g. "RefurbishedCondition"
-    condition = CONDITION_MAP.get(cond_key, cond_key)
 
-    # List price from priceSpecification (only present when there's a "was" price)
-    price_spec = offers.get('priceSpecification', {})
-    list_price = price_spec.get('price') if price_spec.get('name') == 'List Price' else None
-
-    # Shipping (first destination)
-    shipping_details = offers.get('shippingDetails', [])
-    if shipping_details:
-        shipping_val = shipping_details[0].get('shippingRate', {}).get('value', '')
-        shipping = 'Free' if str(shipping_val) in ('0', '0.0') else f"${shipping_val}"
-    else:
-        shipping = None
-
-    # Return policy
-    return_policies = offers.get('hasMerchantReturnPolicy', [])
-    return_days = return_policies[0].get('merchantReturnDays') if return_policies else None
-
-    return {
-        'listing_id': offers.get('url', '').split('/itm/')[-1],
-        'name': product.get('name'),
-        'brand': product.get('brand', {}).get('name') if isinstance(product.get('brand'), dict) else product.get('brand'),
-        'price': offers.get('price'),
-        'list_price': list_price,     # was-price, None if no discount shown
-        'currency': offers.get('priceCurrency'),
-        'availability': offers.get('availability', '').split('/')[-1],  # e.g. "InStock"
-        'condition': condition,
-        'condition_url': cond_url,
-        'shipping': shipping,
-        'return_days': return_days,
-        'images': product.get('image', []),
-        'gtin13': product.get('gtin13'),
-        'mpn': product.get('mpn'),
-        'color': product.get('color'),
-        'breadcrumbs': breadcrumbs,
+    if (d["@type"] === "Product") {
+      product = d;
+    } else if (d["@type"] === "BreadcrumbList") {
+      breadcrumbs = (d.itemListElement ?? []).map((i: any) => i.name);
     }
+  }
+
+  if (!product) return null;
+
+  let offers = product.offers ?? {};
+  if (Array.isArray(offers)) offers = offers[0];
+
+  // Schema.org condition URL -> human label
+  const CONDITION_MAP: Record<string, string> = {
+    NewCondition:          "New",
+    UsedCondition:         "Used",
+    RefurbishedCondition:  "Refurbished",
+    DamagedCondition:      "For Parts / Not Working",
+    LikeNewCondition:      "Like New",
+    VeryGoodCondition:     "Very Good",
+    GoodCondition:         "Good",
+    AcceptableCondition:   "Acceptable",
+  };
+  const cond_url: string = offers.itemCondition ?? "";
+  const cond_key = cond_url.split("/").pop()!;  // e.g. "RefurbishedCondition"
+  const condition = CONDITION_MAP[cond_key] ?? cond_key;
+
+  // List price from priceSpecification (only present when there's a "was" price)
+  const price_spec = offers.priceSpecification ?? {};
+  const list_price = price_spec.name === "List Price" ? price_spec.price : null;
+
+  // Shipping (first destination)
+  const shipping_details = offers.shippingDetails ?? [];
+  let shipping: string | null;
+  if (shipping_details.length) {
+    const shipping_val = shipping_details[0].shippingRate?.value ?? "";
+    shipping = ["0", "0.0"].includes(String(shipping_val)) ? "Free" : `$${shipping_val}`;
+  } else {
+    shipping = null;
+  }
+
+  // Return policy
+  const return_policies = offers.hasMerchantReturnPolicy ?? [];
+  const return_days = return_policies.length ? return_policies[0].merchantReturnDays ?? null : null;
+
+  return {
+    listing_id: (offers.url ?? "").split("/itm/").pop(),
+    name: product.name ?? null,
+    brand: product.brand && typeof product.brand === "object" ? product.brand.name ?? null : product.brand ?? null,
+    price: offers.price ?? null,
+    list_price,     // was-price, null if no discount shown
+    currency: offers.priceCurrency ?? null,
+    availability: (offers.availability ?? "").split("/").pop(),  // e.g. "InStock"
+    condition,
+    condition_url: cond_url,
+    shipping,
+    return_days,
+    images: product.image ?? [],
+    gtin13: product.gtin13 ?? null,
+    mpn: product.mpn ?? null,
+    color: product.color ?? null,
+    breadcrumbs,
+  };
+}
 ```
 
 **Field-tested on item 167040158614:**
-```python
-html = http_get("https://www.ebay.com/itm/167040158614", headers=HEADERS)
-detail = extract_item_detail(html)
-# {
-#   'listing_id':   '167040158614',
-#   'name':         'Logitech - PRO X TKL LIGHTSPEED Wireless Mechanical Gaming Keyboard - 920-012118',
-#   'brand':        'Logitech',
-#   'price':        74.99,
-#   'list_price':   '219.99',
-#   'currency':     'USD',
-#   'availability': 'InStock',
-#   'condition':    'Refurbished',
-#   'shipping':     'Free',
-#   'return_days':  30,
-#   'images':       ['https://i.ebayimg.com/images/g/vwsAAeSwEcFpw~hW/s-l1600.jpg', ...],  # 5 images
-#   'gtin13':       '097855189066',
-#   'mpn':          '920-012118',
-#   'color':        'Black',
-#   'breadcrumbs':  ['eBay', 'Electronics', 'Computers/Tablets & Networking', ...],
-# }
+```ts
+const html = await http_get("https://www.ebay.com/itm/167040158614", HEADERS);
+const detail = extract_item_detail(html);
+// {
+//   listing_id:   '167040158614',
+//   name:         'Logitech - PRO X TKL LIGHTSPEED Wireless Mechanical Gaming Keyboard - 920-012118',
+//   brand:        'Logitech',
+//   price:        74.99,
+//   list_price:   '219.99',
+//   currency:     'USD',
+//   availability: 'InStock',
+//   condition:    'Refurbished',
+//   shipping:     'Free',
+//   return_days:  30,
+//   images:       ['https://i.ebayimg.com/images/g/vwsAAeSwEcFpw~hW/s-l1600.jpg', ...],  // 5 images
+//   gtin13:       '097855189066',
+//   mpn:          '920-012118',
+//   color:        'Black',
+//   breadcrumbs:  ['eBay', 'Electronics', 'Computers/Tablets & Networking', ...],
+// }
 ```
 
 ### Item Specifics from `ux-textspans` (complementary to JSON-LD)
@@ -318,39 +315,38 @@ detail = extract_item_detail(html)
 The `ux-textspans` elements in item pages contain additional data not in JSON-LD,
 including seller name, feedback %, items sold, detailed condition text, and all item specifics.
 
-```python
-import re
+```ts
+function extract_ux_textspans(html: string) {
+  // Return list of all ux-textspans text values from an item page.
+  return [...html.matchAll(/ux-textspans[^>]*>([^<]+)<\/span>/g)].map((m) => m[1]);
+}
 
-def extract_ux_textspans(html):
-    """Return list of all ux-textspans text values from an item page."""
-    return [m.group(1) for m in re.finditer(r'ux-textspans[^>]*>([^<]+)</span>', html)]
-
-# From item 167040158614 (confirmed):
-# Index [3]  -> item title
-# Index [4]  -> subtitle / seller tagline
-# Index [5]  -> seller name ("Logitech")
-# Index [6]  -> seller feedback count ("(20742)")
-# Index [7]  -> seller feedback % ("99.6% positive")
-# Index [10] -> current price ("US $74.99")
-# Index [12] -> list price ("US $219.99")
-# Index [33] -> condition label ("Excellent - Refurbished")
-# Index [36] -> quantity sold ("45 sold")
-# Pairs from [105] onward: item specifics as label/value pairs
+// From item 167040158614 (confirmed):
+// Index [3]  -> item title
+// Index [4]  -> subtitle / seller tagline
+// Index [5]  -> seller name ("Logitech")
+// Index [6]  -> seller feedback count ("(20742)")
+// Index [7]  -> seller feedback % ("99.6% positive")
+// Index [10] -> current price ("US $74.99")
+// Index [12] -> list price ("US $219.99")
+// Index [33] -> condition label ("Excellent - Refurbished")
+// Index [36] -> quantity sold ("45 sold")
+// Pairs from [105] onward: item specifics as label/value pairs
 ```
 
 ## Pagination
 
 Use `_pgn=N` (confirmed working, returns ~65–88 items per page):
-```python
-for page in range(1, 4):
-    url = f"https://www.ebay.com/sch/i.html?_nkw=laptop&LH_BIN=1&_sop=15&_pgn={page}"
-    html = http_get(url, headers=HEADERS)
-    if is_blocked(html):
-        break
-    items = extract_search_results(html)
-    print(f"Page {page}: {len(items)} items")
-    # IMPORTANT: add delay between pages to avoid bot detection
-    time.sleep(3)
+```ts
+for (let page = 1; page < 4; page++) {
+  const url = `https://www.ebay.com/sch/i.html?_nkw=laptop&LH_BIN=1&_sop=15&_pgn=${page}`;
+  const html = await http_get(url, HEADERS);
+  if (is_blocked(html)) break;
+  const items = extract_search_results(html);
+  console.log(`Page ${page}: ${items.length} items`);
+  // IMPORTANT: add delay between pages to avoid bot detection
+  await wait(3);
+}
 ```
 
 **Rate-limit safe pattern**: 3–5 second delay between requests. Beyond ~10 rapid requests
@@ -371,41 +367,41 @@ in a session, eBay returns "Pardon Our Interruption" for all subsequent requests
 
 ### Scrape a search and follow top items
 
-```python
-import re, json, time
-from helpers import http_get
+```ts
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Accept-Language": "en-US,en;q=0.9",
+};
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9",
+function is_blocked(html: string) {
+  return html.includes("Pardon Our Interruption") || html.length < 20_000;
 }
 
-def is_blocked(html):
-    return 'Pardon Our Interruption' in html or len(html) < 20_000
+// Step 1: Search
+const html = await http_get(
+  "https://www.ebay.com/sch/i.html?_nkw=mechanical+keyboard&LH_BIN=1&_sop=15&LH_ItemCondition=1000",
+  HEADERS
+);
+if (is_blocked(html)) throw new Error("Rate limited — wait 60-120s and retry");
 
-# Step 1: Search
-html = http_get(
-    "https://www.ebay.com/sch/i.html?_nkw=mechanical+keyboard&LH_BIN=1&_sop=15&LH_ItemCondition=1000",
-    headers=HEADERS
-)
-if is_blocked(html):
-    raise RuntimeError("Rate limited — wait 60-120s and retry")
+const items = extract_search_results(html);
+console.log(`Found ${items.length} items`);
 
-items = extract_search_results(html)
-print(f"Found {len(items)} items")
-
-# Step 2: Fetch details for top results (with delay)
-details = []
-for item in items[:5]:
-    time.sleep(3)
-    detail_html = http_get(item['url'], headers=HEADERS)
-    if is_blocked(detail_html):
-        print(f"Blocked on item {item['listing_id']}, stopping")
-        break
-    detail = extract_item_detail(detail_html)
-    if detail:
-        details.append(detail)
-        print(f"  {detail['name'][:50]} | {detail['price']} {detail['currency']} | {detail['condition']}")
+// Step 2: Fetch details for top results (with delay)
+const details: any[] = [];
+for (const item of items.slice(0, 5)) {
+  await wait(3);
+  const detail_html = await http_get(item.url, HEADERS);
+  if (is_blocked(detail_html)) {
+    console.log(`Blocked on item ${item.listing_id}, stopping`);
+    break;
+  }
+  const detail = extract_item_detail(detail_html);
+  if (detail) {
+    details.push(detail);
+    console.log(`  ${detail.name.slice(0, 50)} | ${detail.price} ${detail.currency} | ${detail.condition}`);
+  }
+}
 ```
 
 ## Gotchas
@@ -414,22 +410,22 @@ for item in items[:5]:
 
 - **No JSON-LD on search results** — The `application/ld+json` blocks that Amazon and other sites embed are absent from eBay search pages. Parse the HTML using regex on `s-card` class names.
 
-- **JSON-LD IS on item pages** — Two blocks: `BreadcrumbList` and `Product`. The `Product` block is authoritative. Use the regex `r'application/ld\+json[^>]*>(.*?)</script>'` (note the `[^>]*` before `>` — eBay doesn't use `type="..."` quote style consistently in all contexts).
+- **JSON-LD IS on item pages** — Two blocks: `BreadcrumbList` and `Product`. The `Product` block is authoritative. Use the regex `/application\/ld\+json[^>]*>([\s\S]*?)<\/script>/g` (note the `[^>]*` before `>` — eBay doesn't use `type="..."` quote style consistently in all contexts).
 
 - **Duplicate listing IDs in the HTML** — Each card's listing ID appears 2–3 times (image link, title link, watch button). Always deduplicate using a `seen_ids` set when splitting on `data-listingid`.
 
 - **Placeholder cards ("Shop on eBay")** — The first card slot may be a promoted/placeholder card with title `"Shop on eBay"` and listing ID `"123456"`. Filter these out.
 
-- **Item URLs have tracking params** — Raw extracted URLs look like `https://www.ebay.com/itm/167040158614?_skw=...&epid=...&hash=...&itmprp=...`. Always strip to `itm/{id}` with `.split('?')[0]`.
+- **Item URLs have tracking params** — Raw extracted URLs look like `https://www.ebay.com/itm/167040158614?_skw=...&epid=...&hash=...&itmprp=...`. Always strip to `itm/{id}` with `.split("?")[0]`.
 
-- **`www.ebay.com` vs `ebay.com`** — Some item URLs in search results omit `www.`. Normalize with `url.replace('//ebay.com/', '//www.ebay.com/')`.
+- **`www.ebay.com` vs `ebay.com`** — Some item URLs in search results omit `www.`. Normalize with `url.replace("//ebay.com/", "//www.ebay.com/")`.
 
-- **Search response is large** — Uncompressed HTML is 1.5–1.8 MB per page. The `http_get` helper handles gzip transparently, so the actual transfer is much smaller, but parsing a 1.8 MB string is slow. Use `re.split` on card boundaries rather than an HTML parser for speed.
+- **Search response is large** — Uncompressed HTML is 1.5–1.8 MB per page. The `http_get` helper handles gzip transparently, so the actual transfer is much smaller, but parsing a 1.8 MB string is slow. Use `html.split(regex)` on card boundaries rather than an HTML parser for speed.
 
 - **`_sop` sort and `LH_ItemCondition` require full browser-like UA** — Requests with just `"Mozilla/5.0"` (minimal UA) return empty results for these parameters more quickly than full Chrome UA. Always use the full UA string.
 
 - **Condition in JSON-LD is a schema.org URL** — `offers.itemCondition` returns `"https://schema.org/RefurbishedCondition"`, not a human label. Split on `/` and map the last segment using `CONDITION_MAP` (see `extract_item_detail` above).
 
-- **`list_price` only present when discounted** — `offers.priceSpecification` only appears in JSON-LD when eBay shows a "List Price" comparison. Check `price_spec.get('name') == 'List Price'` before using.
+- **`list_price` only present when discounted** — `offers.priceSpecification` only appears in JSON-LD when eBay shows a "List Price" comparison. Check `price_spec.name === "List Price"` before using.
 
-- **Seller data is NOT in JSON-LD** — `d.get('seller')` returns `None` on item pages. The seller name, feedback %, and items sold count are only in `ux-textspans` elements in the HTML body.
+- **Seller data is NOT in JSON-LD** — `d.seller` is `undefined` on item pages. The seller name, feedback %, and items sold count are only in `ux-textspans` elements in the HTML body.

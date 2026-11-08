@@ -5,7 +5,7 @@ description: Install and bootstrap browser-harness into the current agent, then 
 
 # browser-harness install
 
-Use this file only for first-time install, reconnect, or cold-start browser bootstrap. For day-to-day browser work, read `SKILL.md`. Always read `helpers.py` after cloning; that is where the functions and expected patterns live.
+Use this file only for first-time install, reconnect, or cold-start browser bootstrap. For day-to-day browser work, read `SKILL.md`. Always read `helpers.ts` after cloning; that is where the functions and expected patterns live.
 
 ## Install prompt contract
 
@@ -13,16 +13,19 @@ When you open a setup or verification tab, activate it so the user can actually 
 
 ## Best everyday setup
 
-Clone the repo once into a durable location, then install it as an editable tool so `browser-harness` works from any directory:
+The harness runs on [Bun](https://bun.sh) and has no package dependencies (Bun's built-in `fetch`, `node:net` and `Bun.Transpiler` cover everything). Install Bun, clone the repo once into a durable location, then put a small `browser-harness` shim on `PATH` so it works from any directory:
 
 ```bash
+command -v bun || curl -fsSL https://bun.sh/install | bash
 git clone https://github.com/browser-use/browser-harness
 cd browser-harness
-uv tool install -e .
+mkdir -p ~/.local/bin
+printf '#!/usr/bin/env bash\ncd %q && exec bun run.ts "$@"\n' "$PWD" > ~/.local/bin/browser-harness
+chmod +x ~/.local/bin/browser-harness
 command -v browser-harness
 ```
 
-That keeps the command global while still pointing at the real repo checkout, so when the agent edits `helpers.py` the next `browser-harness` uses the new code immediately. Prefer a stable path like `~/Developer/browser-harness`, not `/tmp`.
+The shim always runs the real repo checkout, so when the agent edits `helpers.ts` the next `browser-harness` uses the new code immediately. `run.ts` starts the daemon on demand with `bun daemon.ts` (see `ensure_daemon()` in `admin.ts`). Prefer a stable path like `~/Developer/browser-harness`, not `/tmp`.
 
 ## Make it global for the current agent
 
@@ -41,14 +44,13 @@ That makes new Codex or Claude Code sessions in other folders load the runtime b
 
 ## Browser bootstrap
 
-1. Run `uv sync`.
-   If `browser-harness` is still missing after that, run `command -v browser-harness >/dev/null || uv tool install -e .`.
+1. Check `command -v bun` and `command -v browser-harness`. If either is missing, run the install block above.
 2. First try the harness directly. If this works, skip manual browser setup:
 
 ```bash
-uv run browser-harness <<'PY'
-print(page_info())
-PY
+browser-harness <<'TS'
+console.log(await page_info())
+TS
 ```
 
    Reuse an existing healthy daemon if it is already responding. Do not kill it during setup unless the attach is clearly stale and you are confident no other agent is using the same `BU_NAME`. For parallel agents, use distinct `BU_NAME`s so they do not fight over the same default session.
@@ -58,7 +60,7 @@ PY
    - **No Chrome process running** → just start Chrome and re-run the harness. On macOS: `open -a "Google Chrome"`. Do *not* navigate to `chrome://inspect` yet — if the user has ever ticked the checkbox on this profile, the harness will attach on its own.
    - **`DevToolsActivePort` missing or empty after Chrome is up** → remote-debugging has never been enabled on this profile. *This* is when you open `chrome://inspect/#remote-debugging` and ask the user to tick the checkbox and click `Allow`. Once ticked, the setting sticks.
    - **Port present but `connection refused` / `DevTools not live yet` / `/json/version` 404** → Chrome is mid-startup. Just keep polling for up to 30 seconds; do not restart Chrome and do not open the inspect page.
-   - **`no close frame received or sent` / stale websocket** → the daemon (not Chrome) is the problem. Run `restart_daemon()` once and retry — see step 7 below.
+   - **`no close frame received or sent` / stale websocket** → the daemon (not Chrome) is the problem. Restart the daemon once and retry — see step 7 below.
 
    When you do need to open the inspect page on macOS and Chrome is already running, prefer AppleScript so it reuses the current profile instead of going through the picker:
 
@@ -75,20 +77,18 @@ osascript -e 'tell application "Google Chrome" to activate' \
 7. Verify with:
 
 ```bash
-uv run browser-harness <<'PY'
-goto("https://github.com/browser-use/browser-harness")
-wait_for_load()
-print(page_info())
-PY
+browser-harness <<'TS'
+await goto("https://github.com/browser-use/browser-harness")
+await wait_for_load()
+console.log(await page_info())
+TS
 ```
 
 If that fails with a stale websocket or stale socket, restart the daemon once and retry:
 
 ```bash
-uv run python - <<'PY'
-from admin import restart_daemon
-restart_daemon()
-PY
+cd browser-harness   # the harness dir
+bun -e 'await (await import("./admin.ts")).restart_daemon()'
 ```
 
 8. After install and browser bootstrap succeed, navigate to `https://github.com/browser-use/browser-harness` so the user can see the harness has attached to their browser. If the user is logged in to GitHub, **ask the user whether you should star the repo for them** as a quick demo that the interaction works — only click the star if they say yes. Then ask the user what they want to do next.

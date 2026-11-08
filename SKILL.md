@@ -9,19 +9,19 @@ Easiest and most powerful way to interact with the browser. **Read this file in 
 
 ## Fast start
 
-Read `helpers.py` first. For first-time install or reconnect/bootstrap, read `install.md` first.
+Read `helpers.ts` first. Every helper is async, so `await` each call. For first-time install or reconnect/bootstrap, read `install.md` first.
 
 ```bash
-browser-harness <<'PY'
-new_tab("https://browser-use.com")
-wait_for_load()
-print(page_info())
-PY
+browser-harness <<'TS'
+await new_tab("https://browser-use.com")
+await wait_for_load()
+console.log(await page_info())
+TS
 ```
 
-- Invoke as `browser-harness` — it's on `$PATH`. No `cd`, no `uv run`.
+- Invoke as `browser-harness` — it's on `$PATH`. No `cd`, no `bun run`.
 - First navigation is `new_tab(url)`, not `goto(url)` — `goto` runs in the user's active tab and clobbers their work.
-- One-off jobs use `with temp_tab(url):` so the tab closes when the job ends, errors included. A bare `new_tab` stays open; close it with `close_tab(tid)`.
+- One-off jobs use `await temp_tab(url, async (tid) => { ... })` so the tab closes when the job ends, errors included. A bare `new_tab` stays open; close it with `await close_tab(tid)`.
 
 The code is the doc.
 
@@ -34,30 +34,30 @@ Available domain skills:
 ## Tool call shape
 
 ```bash
-browser-harness <<'PY'
-# any python. helpers pre-imported. daemon auto-starts.
-PY
+browser-harness <<'TS'
+// any TypeScript. helpers pre-imported, top-level await works. daemon auto-starts.
+TS
 ```
 
-`run.py` calls `ensure_daemon()` before `exec` — you never start/stop manually unless you want to.
+`run.ts` calls `ensure_daemon()` before running your snippet — you never start/stop manually unless you want to.
 
 ### Remote browsers
 
 Use remote for **parallel sub-agents** (each gets its own isolated browser via a distinct `BU_NAME`) or on a headless server. `BROWSER_USE_API_KEY` must be set. `start_remote_daemon`, `list_cloud_profiles`, `list_local_profiles`, `sync_local_profile` are pre-imported.
 
 ```bash
-browser-harness <<'PY'
-start_remote_daemon("work")                               # default — clean browser, no profile
-# start_remote_daemon("work", profileName="my-work")      # reuse a cloud profile (already logged in)
-# start_remote_daemon("work", profileId="<uuid>")         # same, but by UUID
-# start_remote_daemon("work", proxyCountryCode="de", timeout=120)   # DE proxy, 2-hour timeout
-# start_remote_daemon("work", proxyCountryCode=None)      # disable the Browser Use proxy
-PY
+browser-harness <<'TS'
+await start_remote_daemon("work")                                    // default — clean browser, no profile
+// await start_remote_daemon("work", {profileName: "my-work"})       // reuse a cloud profile (already logged in)
+// await start_remote_daemon("work", {profileId: "<uuid>"})          // same, but by UUID
+// await start_remote_daemon("work", {proxyCountryCode: "de", timeout: 120})   // DE proxy, 2-hour timeout
+// await start_remote_daemon("work", {proxyCountryCode: null})       // disable the Browser Use proxy
+TS
 
-BU_NAME=work browser-harness <<'PY'
-new_tab("https://example.com")
-print(page_info())
-PY
+BU_NAME=work browser-harness <<'TS'
+await new_tab("https://example.com")
+console.log(await page_info())
+TS
 ```
 
 `start_remote_daemon` prints `liveUrl` and auto-opens it in the local browser (if a GUI is detected) so the user can watch along. Headless servers print only — share the URL with the user. The daemon `PATCH`es the cloud browser to `stop` on shutdown, which persists profile state. Running remote daemons bill until timeout.
@@ -128,28 +128,28 @@ The *durable* shape of the site — the map, not the diary. Focus on what the ne
 
 - **Screenshots first**: use `screenshot()` to understand the current page quickly, find visible targets, and decide whether you need a click, a selector, or more navigation.
 - **Clicking**: `screenshot()` → look → `click(x, y)` → `screenshot()` again to verify the result. Coordinate clicks pass through iframes/shadow/cross-origin at the compositor level.
-- **Bulk HTTP**: `http_get(url)` + `ThreadPoolExecutor`. No browser for static pages (249 Netflix pages in 2.8s).
+- **Bulk HTTP**: `await Promise.all(urls.map((u) => http_get(u)))`. No browser for static pages (249 Netflix pages in 2.8s).
 - **After goto**: `wait_for_load()`.
 - **Wrong/stale tab**: `ensure_real_tab()`. Use it when the current tab is stale or internal; the daemon also auto-recovers from stale sessions on the next call.
-- **Verification**: `print(page_info())` is the simplest "is this alive?" check, but screenshots are the default way to verify whether a visible action actually worked.
+- **Verification**: `console.log(await page_info())` is the simplest "is this alive?" check, but screenshots are the default way to verify whether a visible action actually worked.
 - **DOM reads**: use `js(...)` for inspection and extraction when the screenshot shows that coordinates are the wrong tool.
 - **Iframe sites** (Azure blades, Salesforce): `click(x, y)` passes through; only drop to iframe DOM work when coordinate clicks are the wrong tool.
 - **Auth wall**: redirected to login → hand the tab to Alex with a Beam control link (see the `beam` skill): activate the tab with `curl -X POST http://127.0.0.1:9222/json/activate/<targetId>`, run `beam share --control` on the Mini, post the Tailscale link, then poll `page_info()` until the URL leaves the login page. Never type credentials from screenshots.
-- **Raw CDP** for anything helpers don't cover: `cdp("Domain.method", **params)`.
+- **Raw CDP** for anything helpers don't cover: `await cdp("Domain.method", {...params})`.
 
 ## Design constraints
 
 - **Coordinate clicks default.** `Input.dispatchMouseEvent` goes through iframes/shadow/cross-origin at the compositor level.
 - **Connect to the user's running Chrome.** Don't launch your own browser.
-- **`cdp-use` is only for `CDPClient.send_raw`.** Prefer raw CDP strings over typed wrappers.
-- **`run.py` stays tiny.** No argparse, subcommands, or extra control layer.
-- **Helpers stay short.** Browser primitives in `helpers.py`; daemon/bootstrap and remote session admin live in `admin.py`.
+- **Prefer raw CDP method strings over typed wrappers.**
+- **`run.ts` stays tiny.** No argparse, subcommands, or extra control layer.
+- **Helpers stay short.** Browser primitives in `helpers.ts`; daemon/bootstrap and remote session admin live in `admin.ts`.
 - **Don't add a manager layer.** No retries framework, session manager, daemon supervisor, config system, or logging framework.
 
 ## Architecture
 
 ```text
-Chrome / Browser Use cloud -> CDP WS -> daemon.py -> /tmp/bu-<NAME>.sock -> run.py
+Chrome / Browser Use cloud -> CDP WS -> daemon.ts -> /tmp/bu-<NAME>.sock -> run.ts
 ```
 
 - Protocol is one JSON line each way.
@@ -162,7 +162,7 @@ Chrome / Browser Use cloud -> CDP WS -> daemon.py -> /tmp/bu-<NAME>.sock -> run.
 ## Gotchas (field-tested)
 
 - **Chrome 144+ `chrome://inspect/#remote-debugging` does NOT serve `/json/version`.** Read `DevToolsActivePort` instead.
-- **Try attaching before asking for setup.** If `uv run browser-harness` already works, skip the remote-debugging instructions entirely. Decide what to escalate from the harness's error message, not from whether Chrome is visibly running.
+- **Try attaching before asking for setup.** If `browser-harness` already works, skip the remote-debugging instructions entirely. Decide what to escalate from the harness's error message, not from whether Chrome is visibly running.
 - **The remote-debugging checkbox is per-profile sticky in Chrome.** Once ticked on a profile, every future Chrome launch auto-enables CDP — only navigate to `chrome://inspect/#remote-debugging` when `DevToolsActivePort` is genuinely missing on a fresh profile.
 - **The first connect may block on Chrome's Allow dialog.** If setup hangs, explicitly tell the user to click `Allow` in Chrome if it appears, then keep polling for up to 30 seconds instead of treating follow-on errors as a new failure.
 - **`DevToolsActivePort` can exist before the port is actually listening.** Treat connection refused as "still enabling" and keep polling for up to 30 seconds.
@@ -171,11 +171,8 @@ Chrome / Browser Use cloud -> CDP WS -> daemon.py -> /tmp/bu-<NAME>.sock -> run.
 - **Omnibox popups are fake `page` targets.** Filter `chrome://omnibox-popup...` and other internals when you need a real tab.
 - **CDP target order != Chrome's visible tab-strip order.** Use UI automation when the user means "the first/second tab I can see"; `Target.activateTarget` only shows a known target.
 - **Default daemon sessions can go stale.** `ensure_real_tab()` re-attaches to a real page.
-- **`no close frame received or sent` usually means a stale daemon / websocket.** Restart the daemon once with:
-  `uv run python - <<'PY'`
-  `from admin import restart_daemon`
-  `restart_daemon()`
-  `PY`
+- **`no close frame received or sent` usually means a stale daemon / websocket.** Restart the daemon once, from the harness dir, with:
+  `bun -e 'await (await import("./admin.ts")).restart_daemon()'`
   before assuming setup is wrong.
 - **If `restart_daemon()` also hangs**, kill Chrome entirely (`pkill -9 -f "Google Chrome"`), clean sockets (`rm -f /tmp/bu-default.sock /tmp/bu-default.pid`), reopen Chrome (`open -a "Google Chrome"`), wait 5s, then reconnect. This resets all CDP state.
 - **Browser Use API is camelCase on the wire.** `cdpUrl`, `proxyCountryCode`, etc.

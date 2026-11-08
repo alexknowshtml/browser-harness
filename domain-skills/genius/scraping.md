@@ -9,24 +9,21 @@ No authentication required for any approach documented here.
 
 `http_get` uses `User-Agent: Mozilla/5.0` (bare string). Genius returns HTTP 403 for that UA on both HTML pages and internal API endpoints. Adding any OS token (e.g. `(Macintosh; Intel Mac OS X 10_15_7)`) immediately lifts the block — no cookies, no session, no JavaScript required.
 
-```python
-from helpers import http_get
-
-def genius_get(url, extra_headers=None):
-    """Drop-in replacement for http_get on genius.com endpoints."""
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip",
-    }
-    if extra_headers:
-        headers.update(extra_headers)
-    return http_get(url, headers=headers)
+```ts
+/** Drop-in replacement for http_get on genius.com endpoints. */
+async function genius_get(url: string, extra_headers: Record<string, string> | null = null): Promise<string> {
+  const headers: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip",
+    ...(extra_headers ?? {}),
+  };
+  return http_get(url, headers);
+}
 ```
 
 Use `genius_get` everywhere in this document instead of bare `http_get`.
@@ -41,124 +38,128 @@ a browser-like User-Agent. They return rich structured JSON in ~0.13s.
 
 ### Song metadata
 
-```python
-import json
-from helpers import http_get
+```ts
+async function genius_get(url: string, extra_headers: Record<string, string> | null = null): Promise<string> {
+  const headers: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip",
+    ...(extra_headers ?? {}),
+  };
+  return http_get(url, headers);
+}
 
-def genius_get(url, extra_headers=None):
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip",
-    }
-    if extra_headers:
-        headers.update(extra_headers)
-    return http_get(url, headers=headers)
+/** Fetch full song metadata by Genius song ID. */
+async function genius_song(song_id: number) {
+  const data = JSON.parse(await genius_get(`https://genius.com/api/songs/${song_id}`));
+  return data.response.song;
+}
 
-def genius_song(song_id):
-    """Fetch full song metadata by Genius song ID."""
-    data = json.loads(genius_get(f"https://genius.com/api/songs/{song_id}"))
-    return data["response"]["song"]
+const song = await genius_song(1063);
+// All fields available in one call (no auth):
+// song.title                          → "Bohemian Rhapsody"
+// song.full_title                     → "Bohemian Rhapsody by Queen"
+// song.artist_names                   → "Queen"
+// song.primary_artist.name            → "Queen"
+// song.primary_artist.id              → 563
+// song.primary_artist.url             → "https://genius.com/artists/Queen"
+// song.release_date                   → "1975-10-31"
+// song.release_date_for_display       → "October 31, 1975"
+// song.release_date_components        → {"year": 1975, "month": 10, "day": 31}
+// song.stats.pageviews                → 11067562
+// song.stats.contributors             → 516
+// song.stats.accepted_annotations     → 20
+// song.pyongs_count                   → 703
+// song.annotation_count               → 33
+// song.comment_count                  → 253
+// song.album.name                     → "Studio Collection"   (varies by region)
+// song.albums[0].name                 → "A Night at the Opera"  (first = original)
+// song.url                            → "https://genius.com/Queen-bohemian-rhapsody-lyrics"
+// song.path                           → "/Queen-bohemian-rhapsody-lyrics"
+// song.song_art_image_url             → "https://images.genius.com/718de9d..."
+// song.explicit                       → false
+// song.language                       → "en"
+// song.lyrics_state                   → "complete"
+// song.lyrics_verified                → false
+// song.spotify_uuid                   → "7tFiyTwD0nx5a1eklYtX2J"
+// song.youtube_url                    → "https://www.youtube.com/watch?v=fJ9rUzIMcZQ"
+// song.writer_artists                 → [{"name": "Freddie Mercury", ...}]
+// song.producer_artists               → [{"name": "Roy Thomas Baker"}, {"name": "Queen"}]
+// song.featured_artists               → []
 
-song = genius_song(1063)
-# All fields available in one call (no auth):
-# song["title"]                          → "Bohemian Rhapsody"
-# song["full_title"]                     → "Bohemian Rhapsody by Queen"
-# song["artist_names"]                   → "Queen"
-# song["primary_artist"]["name"]         → "Queen"
-# song["primary_artist"]["id"]           → 563
-# song["primary_artist"]["url"]          → "https://genius.com/artists/Queen"
-# song["release_date"]                   → "1975-10-31"
-# song["release_date_for_display"]       → "October 31, 1975"
-# song["release_date_components"]        → {"year": 1975, "month": 10, "day": 31}
-# song["stats"]["pageviews"]             → 11067562
-# song["stats"]["contributors"]          → 516
-# song["stats"]["accepted_annotations"]  → 20
-# song["pyongs_count"]                   → 703
-# song["annotation_count"]              → 33
-# song["comment_count"]                 → 253
-# song["album"]["name"]                 → "Studio Collection"   (varies by region)
-# song["albums"][0]["name"]             → "A Night at the Opera"  (first = original)
-# song["url"]                           → "https://genius.com/Queen-bohemian-rhapsody-lyrics"
-# song["path"]                          → "/Queen-bohemian-rhapsody-lyrics"
-# song["song_art_image_url"]            → "https://images.genius.com/718de9d..."
-# song["explicit"]                      → False
-# song["language"]                      → "en"
-# song["lyrics_state"]                  → "complete"
-# song["lyrics_verified"]              → False
-# song["spotify_uuid"]                  → "7tFiyTwD0nx5a1eklYtX2J"
-# song["youtube_url"]                   → "https://www.youtube.com/watch?v=fJ9rUzIMcZQ"
-# song["writer_artists"]                → [{"name": "Freddie Mercury", ...}]
-# song["producer_artists"]              → [{"name": "Roy Thomas Baker"}, {"name": "Queen"}]
-# song["featured_artists"]             → []
-
-# Primary album (first in list = original release):
-primary_album = song["albums"][0]["name"]   # "A Night at the Opera"
+// Primary album (first in list = original release):
+const primary_album = song.albums[0].name;   // "A Night at the Opera"
 ```
 
 ### Search
 
-```python
-def genius_search(query, per_page=5):
-    """Search Genius. Returns sections: top_hit, song, lyric, artist, album, video, article, user."""
-    url = f"https://genius.com/api/search/multi?per_page={per_page}&q={urllib.parse.quote(query)}"
-    data = json.loads(genius_get(url))
-    return data["response"]["sections"]
+```ts
+/** Search Genius. Returns sections: top_hit, song, lyric, artist, album, video, article, user. */
+async function genius_search(query: string, per_page = 5): Promise<any[]> {
+  const url = `https://genius.com/api/search/multi?per_page=${per_page}&q=${encodeURIComponent(query)}`;
+  const data = JSON.parse(await genius_get(url));
+  return data.response.sections;
+}
 
-import urllib.parse
-sections = genius_search("Bohemian Rhapsody Queen", per_page=5)
-# sections is a list of dicts with keys: "type", "hits"
-# Each hit has: "type", "result"
-# For type="song", result has: id, full_title, url, primary_artist, stats, ...
+const sections = await genius_search("Bohemian Rhapsody Queen", 5);
+// sections is a list of objects with keys: "type", "hits"
+// Each hit has: "type", "result"
+// For type="song", result has: id, full_title, url, primary_artist, stats, ...
 
-for section in sections:
-    if section["type"] == "song":
-        for hit in section["hits"]:
-            r = hit["result"]
-            print(r["full_title"], r["url"], r["id"])
-        # Bohemian Rhapsody by Queen  https://genius.com/Queen-bohemian-rhapsody-lyrics  1063
-        break
+for (const section of sections) {
+  if (section.type === "song") {
+    for (const hit of section.hits) {
+      const r = hit.result;
+      console.log(r.full_title, r.url, r.id);
+    }
+    // Bohemian Rhapsody by Queen  https://genius.com/Queen-bohemian-rhapsody-lyrics  1063
+    break;
+  }
+}
 
-# Simpler search (song section only):
-def genius_search_songs(query, per_page=5):
-    sections = genius_search(query, per_page)
-    for s in sections:
-        if s["type"] == "song":
-            return [h["result"] for h in s["hits"]]
-    return []
+// Simpler search (song section only):
+async function genius_search_songs(query: string, per_page = 5) {
+  const sections = await genius_search(query, per_page);
+  for (const s of sections) {
+    if (s.type === "song") return s.hits.map((h: any) => h.result);
+  }
+  return [];
+}
 ```
 
 ### Artist songs (paginated)
 
-```python
-def genius_artist_songs(artist_id, per_page=20, sort="popularity"):
-    """Fetch paginated list of songs for an artist. sort: 'popularity' or 'title'."""
-    page = 1
-    while True:
-        url = (f"https://genius.com/api/artists/{artist_id}/songs"
-               f"?per_page={per_page}&page={page}&sort={sort}")
-        data = json.loads(genius_get(url))["response"]
-        songs = data["songs"]
-        if not songs:
-            break
-        yield from songs
-        if data["next_page"] is None:
-            break
-        page = data["next_page"]
+```ts
+/** Fetch paginated list of songs for an artist. sort: 'popularity' or 'title'. */
+async function* genius_artist_songs(artist_id: number, per_page = 20, sort = "popularity") {
+  let page = 1;
+  while (true) {
+    const url = `https://genius.com/api/artists/${artist_id}/songs` +
+      `?per_page=${per_page}&page=${page}&sort=${sort}`;
+    const data = JSON.parse(await genius_get(url)).response;
+    const songs = data.songs;
+    if (!songs?.length) break;
+    yield* songs;
+    if (data.next_page == null) break;
+    page = data.next_page;
+  }
+}
 
-# Example: get top 5 Queen songs by popularity
-for song in list(genius_artist_songs(563, per_page=5))[:5]:
-    print(f"{song['full_title']} — {song['stats']['pageviews']:,} views")
-# Bohemian Rhapsody by Queen — 11,067,663 views
-# Don't Stop Me Now by Queen — 2,453,240 views
-# Under Pressure by Queen & David Bowie — 1,972,606 views
-# Somebody to Love by Queen — 1,241,740 views
-# Killer Queen by Queen — 1,146,813 views
+// Example: get top 5 Queen songs by popularity
+let n = 0;
+for await (const song of genius_artist_songs(563, 5)) {
+  console.log(`${song.full_title} — ${song.stats.pageviews.toLocaleString("en-US")} views`);
+  if (++n >= 5) break;
+}
+// Bohemian Rhapsody by Queen — 11,067,663 views
+// Don't Stop Me Now by Queen — 2,453,240 views
+// Under Pressure by Queen & David Bowie — 1,972,606 views
+// Somebody to Love by Queen — 1,241,740 views
+// Killer Queen by Queen — 1,146,813 views
 ```
 
 ---
@@ -170,120 +171,128 @@ lyrics page. There are usually 3–5 such divs (the song is split across section
 Each div can contain nested child divs for annotation highlights — including a
 `data-exclude-from-selection="true"` header div that must be stripped first.
 
-```python
-import re, json
-from helpers import http_get
+```ts
+async function genius_get(url: string, extra_headers: Record<string, string> | null = null): Promise<string> {
+  const headers: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip",
+    ...(extra_headers ?? {}),
+  };
+  return http_get(url, headers);
+}
 
-def genius_get(url, extra_headers=None):
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip",
+/** Strip all <div data-exclude-from-selection="true"> subtrees (contributor headers). */
+function _remove_excluded_divs(html: string): string {
+  while (true) {
+    const idx = html.indexOf('data-exclude-from-selection="true"');
+    if (idx === -1) break;
+    const tag_start = html.lastIndexOf("<div", idx);
+    let depth = 0, pos = tag_start, removed = false;
+    while (pos < html.length) {
+      if (html.startsWith("<div", pos)) {
+        depth += 1; pos += 4;
+      } else if (html.startsWith("</div>", pos)) {
+        depth -= 1; pos += 6;
+        if (depth === 0) {
+          html = html.slice(0, tag_start) + html.slice(pos);
+          removed = true;
+          break;
+        }
+      } else {
+        pos += 1;
+      }
     }
-    if extra_headers:
-        headers.update(extra_headers)
-    return http_get(url, headers=headers)
+    if (!removed) break;
+  }
+  return html;
+}
 
-def _remove_excluded_divs(html):
-    """Strip all <div data-exclude-from-selection="true"> subtrees (contributor headers)."""
-    while True:
-        idx = html.find('data-exclude-from-selection="true"')
-        if idx == -1:
-            break
-        tag_start = html.rfind("<div", 0, idx)
-        depth, pos = 0, tag_start
-        while pos < len(html):
-            if html[pos:pos+4] == "<div":
-                depth += 1; pos += 4
-            elif html[pos:pos+6] == "</div>":
-                depth -= 1; pos += 6
-                if depth == 0:
-                    html = html[:tag_start] + html[pos:]
-                    break
-            else:
-                pos += 1
-        else:
-            break
-    return html
+/** Extract all <div> subtrees that contain the given attribute marker. */
+function _extract_div_content(html: string, marker: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  while (true) {
+    const idx = html.indexOf(marker, start);
+    if (idx === -1) break;
+    const tag_start = html.lastIndexOf("<div", idx);
+    let depth = 0, pos = tag_start;
+    while (pos < html.length) {
+      if (html.startsWith("<div", pos)) {
+        depth += 1; pos += 4;
+      } else if (html.startsWith("</div>", pos)) {
+        depth -= 1; pos += 6;
+        if (depth === 0) {
+          parts.push(html.slice(tag_start, pos));
+          break;
+        }
+      } else {
+        pos += 1;
+      }
+    }
+    start = idx + 1;
+  }
+  return parts;
+}
 
-def _extract_div_content(html, marker):
-    """Extract all <div> subtrees that contain the given attribute marker."""
-    parts = []
-    start = 0
-    while True:
-        idx = html.find(marker, start)
-        if idx == -1:
-            break
-        tag_start = html.rfind("<div", 0, idx)
-        depth, pos = 0, tag_start
-        while pos < len(html):
-            if html[pos:pos+4] == "<div":
-                depth += 1; pos += 4
-            elif html[pos:pos+6] == "</div>":
-                depth -= 1; pos += 6
-                if depth == 0:
-                    parts.append(html[tag_start:pos])
-                    break
-            else:
-                pos += 1
-        start = idx + 1
-    return parts
+/** Convert lyrics HTML to plain text, preserving line breaks. */
+function _html_to_text(html_str: string): string {
+  let text = html_str.replace(/<br\s*\/?>/g, "\n");
+  text = text.replace(/<[^>]+>/g, "");
+  text = text
+    .replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">")
+    .replaceAll("&#39;", "'").replaceAll("&quot;", '"').replaceAll("&#x27;", "'")
+    .replaceAll("&#x2F;", "/").replaceAll("&nbsp;", " ");
+  // Collapse multiple blank lines to one
+  const lines = text.split("\n").map((l) => l.trim());
+  const result: string[] = [];
+  let prev_blank = false;
+  for (const line of lines) {
+    if (!line) {
+      if (!prev_blank) result.push("");
+      prev_blank = true;
+    } else {
+      result.push(line);
+      prev_blank = false;
+    }
+  }
+  return result.join("\n").trim();
+}
 
-def _html_to_text(html_str):
-    """Convert lyrics HTML to plain text, preserving line breaks."""
-    text = re.sub(r"<br\s*/?>", "\n", html_str)
-    text = re.sub(r"<[^>]+>", "", text)
-    text = (text
-            .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-            .replace("&#39;", "'").replace("&quot;", '"').replace("&#x27;", "'")
-            .replace("&#x2F;", "/").replace("&nbsp;", " "))
-    # Collapse multiple blank lines to one
-    lines = [l.strip() for l in text.split("\n")]
-    result, prev_blank = [], False
-    for line in lines:
-        if not line:
-            if not prev_blank:
-                result.append("")
-            prev_blank = True
-        else:
-            result.append(line)
-            prev_blank = False
-    return "\n".join(result).strip()
+/**
+ * Scrape lyrics from a Genius song URL.
+ *
+ * url: the canonical lyrics URL, e.g. 'https://genius.com/Queen-bohemian-rhapsody-lyrics'
+ * Returns: plain-text lyrics string with section headers like [Verse 1], [Chorus].
+ */
+async function genius_lyrics(url: string): Promise<string> {
+  const html = await genius_get(url);
+  const cleaned = _remove_excluded_divs(html);
+  const containers = _extract_div_content(cleaned, 'data-lyrics-container="true"');
+  const parts: string[] = [];
+  for (const c of containers) {
+    const text = _html_to_text(c).trim();
+    if (text) parts.push(text);
+  }
+  return parts.join("\n\n");
+}
 
-def genius_lyrics(url):
-    """
-    Scrape lyrics from a Genius song URL.
-
-    url: the canonical lyrics URL, e.g. 'https://genius.com/Queen-bohemian-rhapsody-lyrics'
-    Returns: plain-text lyrics string with section headers like [Verse 1], [Chorus].
-    """
-    html = genius_get(url)
-    cleaned = _remove_excluded_divs(html)
-    containers = _extract_div_content(cleaned, 'data-lyrics-container="true"')
-    parts = []
-    for c in containers:
-        text = _html_to_text(c).strip()
-        if text:
-            parts.append(text)
-    return "\n\n".join(parts)
-
-lyrics = genius_lyrics("https://genius.com/Queen-bohemian-rhapsody-lyrics")
-# Returns 2076 chars, 62 lines, structured as:
-# [Intro]
-# Is this the real life? Is this just fantasy?
-# Caught in a landslide, no escape from reality
-# ...
-# [Verse 1]
-# Mama, just killed a man
-# ...
-# [Outro]
-# Nothing really matters to me
-# Any way the wind blows
+const lyrics = await genius_lyrics("https://genius.com/Queen-bohemian-rhapsody-lyrics");
+// Returns 2076 chars, 62 lines, structured as:
+// [Intro]
+// Is this the real life? Is this just fantasy?
+// Caught in a landslide, no escape from reality
+// ...
+// [Verse 1]
+// Mama, just killed a man
+// ...
+// [Outro]
+// Nothing really matters to me
+// Any way the wind blows
 ```
 
 **Performance:** Lyrics page is ~1.2 MB. One `genius_get` call takes ~0.18s.
@@ -296,97 +305,94 @@ No rate limiting observed across 10 rapid sequential requests.
 The fastest complete extraction pattern: one API call for all metadata,
 one HTML call for lyrics. Song ID can be derived several ways.
 
-```python
-import json, re, urllib.parse
-from helpers import http_get
+```ts
+async function genius_get(url: string, extra_headers: Record<string, string> | null = null): Promise<string> {
+  const headers: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip",
+    ...(extra_headers ?? {}),
+  };
+  return http_get(url, headers);
+}
 
-def genius_get(url, extra_headers=None):
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip",
+/**
+ * Extract Genius song ID from a lyrics page URL.
+ * Returns null if not determinable — fall back to search.
+ */
+async function genius_song_id_from_url(lyrics_url: string): Promise<number | null> {
+  // Not possible from the slug alone; must fetch the page or use search.
+  // From the HTML: <meta content="genius://songs/{id}" name="twitter:app:url:iphone">
+  const html = await genius_get(lyrics_url);
+  const m = html.match(/content="genius:\/\/songs\/(\d+)"/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/** Search for a song, return metadata + lyrics in two HTTP calls. */
+async function genius_full(query: string) {
+  // Call 1: search for song
+  const sections = JSON.parse(
+    await genius_get(`https://genius.com/api/search/multi?per_page=3&q=${encodeURIComponent(query)}`),
+  ).response.sections;
+  let song_result: any = null;
+  for (const s of sections) {
+    if (s.type === "song" && s.hits.length) {
+      song_result = s.hits[0].result;
+      break;
     }
-    if extra_headers:
-        headers.update(extra_headers)
-    return http_get(url, headers=headers)
+  }
+  if (!song_result) return null;
 
-def genius_song_id_from_url(lyrics_url):
-    """
-    Extract Genius song ID from a lyrics page URL without fetching it.
-    Returns None if not determinable — fall back to fetching the page.
-    """
-    # Not possible from the slug alone; must fetch the page or use search.
-    # From the HTML: <meta content="genius://songs/{id}" name="twitter:app:url:iphone">
-    html = genius_get(lyrics_url)
-    m = re.search(r'content="genius://songs/(\d+)"', html)
-    return int(m.group(1)) if m else None
+  const song_id = song_result.id;
+  const lyrics_url = song_result.url;
 
-def genius_full(query):
-    """
-    Search for a song, return metadata + lyrics in two HTTP calls.
-    """
-    # Call 1: search for song
-    sections = json.loads(
-        genius_get(f"https://genius.com/api/search/multi?per_page=3&q={urllib.parse.quote(query)}")
-    )["response"]["sections"]
-    song_result = None
-    for s in sections:
-        if s["type"] == "song" and s["hits"]:
-            song_result = s["hits"][0]["result"]
-            break
-    if not song_result:
-        return None
+  // Call 2: full metadata from internal API
+  const meta = JSON.parse(await genius_get(`https://genius.com/api/songs/${song_id}`)).response.song;
 
-    song_id = song_result["id"]
-    lyrics_url = song_result["url"]
+  // Call 3: lyrics from HTML
+  const lyrics = await genius_lyrics(lyrics_url);   // uses the function from Approach 2
 
-    # Call 2: full metadata from internal API
-    meta = json.loads(genius_get(f"https://genius.com/api/songs/{song_id}"))["response"]["song"]
+  return {
+    id:           meta.id,
+    title:        meta.title,
+    artist:       meta.primary_artist.name,
+    artist_id:    meta.primary_artist.id,
+    album:        meta.albums?.length ? meta.albums[0].name : null,
+    release_date: meta.release_date,           // "1975-10-31"
+    pageviews:    meta.stats.pageviews,        // 11067562
+    contributors: meta.stats.contributors,     // 516
+    writers:      meta.writer_artists.map((a: any) => a.name),
+    producers:    meta.producer_artists.map((a: any) => a.name),
+    spotify_uuid: meta.spotify_uuid,
+    youtube_url:  meta.youtube_url,
+    song_art_url: meta.song_art_image_url,
+    lyrics_url:   meta.url,
+    lyrics,
+  };
+}
 
-    # Call 3: lyrics from HTML
-    lyrics = genius_lyrics(lyrics_url)   # uses the function from Approach 2
-
-    return {
-        "id":           meta["id"],
-        "title":        meta["title"],
-        "artist":       meta["primary_artist"]["name"],
-        "artist_id":    meta["primary_artist"]["id"],
-        "album":        meta["albums"][0]["name"] if meta.get("albums") else None,
-        "release_date": meta["release_date"],           # "1975-10-31"
-        "pageviews":    meta["stats"]["pageviews"],      # 11067562
-        "contributors": meta["stats"]["contributors"],   # 516
-        "writers":      [a["name"] for a in meta["writer_artists"]],
-        "producers":    [a["name"] for a in meta["producer_artists"]],
-        "spotify_uuid": meta["spotify_uuid"],
-        "youtube_url":  meta["youtube_url"],
-        "song_art_url": meta["song_art_image_url"],
-        "lyrics_url":   meta["url"],
-        "lyrics":       lyrics,
-    }
-
-result = genius_full("Queen Bohemian Rhapsody")
-# {
-#   "id":           1063,
-#   "title":        "Bohemian Rhapsody",
-#   "artist":       "Queen",
-#   "artist_id":    563,
-#   "album":        "A Night at the Opera",
-#   "release_date": "1975-10-31",
-#   "pageviews":    11067562,
-#   "contributors": 516,
-#   "writers":      ["Freddie Mercury"],
-#   "producers":    ["Roy Thomas Baker", "Queen"],
-#   "spotify_uuid": "7tFiyTwD0nx5a1eklYtX2J",
-#   "youtube_url":  "https://www.youtube.com/watch?v=fJ9rUzIMcZQ",
-#   "song_art_url": "https://images.genius.com/718de9d1fbcaae9f3c9b1bf483bfa8f1.1000x1000x1.png",
-#   "lyrics_url":   "https://genius.com/Queen-bohemian-rhapsody-lyrics",
-#   "lyrics":       "[Intro]\nIs this the real life?..."
-# }
+const result = await genius_full("Queen Bohemian Rhapsody");
+// {
+//   "id":           1063,
+//   "title":        "Bohemian Rhapsody",
+//   "artist":       "Queen",
+//   "artist_id":    563,
+//   "album":        "A Night at the Opera",
+//   "release_date": "1975-10-31",
+//   "pageviews":    11067562,
+//   "contributors": 516,
+//   "writers":      ["Freddie Mercury"],
+//   "producers":    ["Roy Thomas Baker", "Queen"],
+//   "spotify_uuid": "7tFiyTwD0nx5a1eklYtX2J",
+//   "youtube_url":  "https://www.youtube.com/watch?v=fJ9rUzIMcZQ",
+//   "song_art_url": "https://images.genius.com/718de9d1fbcaae9f3c9b1bf483bfa8f1.1000x1000x1.png",
+//   "lyrics_url":   "https://genius.com/Queen-bohemian-rhapsody-lyrics",
+//   "lyrics":       "[Intro]\nIs this the real life?..."
+// }
 ```
 
 ---
@@ -405,17 +411,17 @@ result = genius_full("Queen Bohemian Rhapsody")
 
 **Extracting song ID from a known lyrics URL:**
 
-```python
-# The slug alone cannot be decoded to an ID. Must fetch HTML or search.
-# From lyrics page HTML (fastest — one line):
-song_id = re.search(r'content="genius://songs/(\d+)"', html).group(1)
+```ts
+// The slug alone cannot be decoded to an ID. Must fetch HTML or search.
+// From lyrics page HTML (fastest — one line):
+let song_id = html.match(/content="genius:\/\/songs\/(\d+)"/)![1];
 
-# Or from __PRELOADED_STATE__ (same page, equally reliable):
-song_id = re.search(r'\\"song\\":\s*(\d+)', html).group(1)
+// Or from __PRELOADED_STATE__ (same page, equally reliable):
+song_id = html.match(/\\"song\\":\s*(\d+)/)![1];
 
-# Or from search API (no HTML required):
-sections = json.loads(genius_get(f"https://genius.com/api/search/multi?per_page=1&q={query}"))
-# then walk sections for type="song"
+// Or from search API (no HTML required):
+const sections = JSON.parse(await genius_get(`https://genius.com/api/search/multi?per_page=1&q=${encodeURIComponent(query)}`));
+// then walk sections for type="song"
 ```
 
 ---
@@ -446,18 +452,17 @@ The following are **not available** via `genius_get` / HTTP:
 
 If you have a token (free registration at genius.com/developers):
 
-```python
-def genius_api(path, token):
-    """Call the official public API. path example: '/songs/1063'"""
-    import json
-    from helpers import http_get
-    url = f"https://api.genius.com{path}"
-    return json.loads(http_get(url, headers={"Authorization": f"Bearer {token}"}))
+```ts
+/** Call the official public API. path example: '/songs/1063' */
+async function genius_api(path: string, token: string) {
+  const url = `https://api.genius.com${path}`;
+  return JSON.parse(await http_get(url, { "Authorization": `Bearer ${token}` }));
+}
 
-# Returns same structure as the internal /api/* endpoints.
-# Endpoints: /songs/{id}, /artists/{id}, /artists/{id}/songs, /search?q=...
-# Without a token: HTTP 401 with body:
-# {"meta": {"status": 401, "message": "This call requires an access_token..."}}
+// Returns same structure as the internal /api/* endpoints.
+// Endpoints: /songs/{id}, /artists/{id}, /artists/{id}/songs, /search?q=...
+// Without a token: HTTP 401 with body:
+// {"meta": {"status": 401, "message": "This call requires an access_token..."}}
 ```
 
 ---
@@ -471,15 +476,15 @@ def genius_api(path, token):
 - **`data-lyrics-container` split across 3–5 divs**: Don't look for a single
   lyrics block. Use `_extract_div_content` on all occurrences, then join.
   Empty containers (`<div ...></div>`, 87 bytes) appear between sections —
-  the `if text:` guard skips them cleanly.
+  the `if (text)` guard skips them cleanly.
 
 - **`data-exclude-from-selection` header in first container**: The first
   lyrics container includes a contributor credit header div. It must be
   stripped before text extraction or the output will begin with
   `"516 ContributorsTranslations..."` instead of `"[Intro]"`.
 
-- **`album` field vs `albums[0]`**: `song["album"]` is the "primary" album
-  used by Genius's album link (often a compilation or reissue). `song["albums"][0]`
+- **`album` field vs `albums[0]`**: `song.album` is the "primary" album
+  used by Genius's album link (often a compilation or reissue). `song.albums[0]`
   is the first album in the full list and is typically the original release.
   Verified: for Bohemian Rhapsody, `album.name` = "Studio Collection" but
   `albums[0].name` = "A Night at the Opera".

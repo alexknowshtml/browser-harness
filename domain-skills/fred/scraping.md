@@ -13,12 +13,12 @@ Need browser-visible chart data? → use CDP to intercept network requests
 ```
 
 **The web CSV/JSON/TXT URLs all timeout — do NOT attempt them:**
-```python
-# ALL OF THESE TIMEOUT — confirmed dead from headless HTTP:
-# https://fred.stlouisfed.org/graph/fredgraph.csv?id=GDP      ← timeout
-# https://fred.stlouisfed.org/graph/fredgraph.json?id=GDP     ← timeout
-# https://fred.stlouisfed.org/data/GDP.txt                    ← timeout
-# https://fred.stlouisfed.org/series/GDP                      ← timeout
+```ts
+// ALL OF THESE TIMEOUT — confirmed dead from headless HTTP:
+// https://fred.stlouisfed.org/graph/fredgraph.csv?id=GDP      ← timeout
+// https://fred.stlouisfed.org/graph/fredgraph.json?id=GDP     ← timeout
+// https://fred.stlouisfed.org/data/GDP.txt                    ← timeout
+// https://fred.stlouisfed.org/series/GDP                      ← timeout
 ```
 
 ## Getting a free FRED API key
@@ -36,83 +36,83 @@ The key is free, instant, and unlimited for reasonable use (120 req/min cap).
 
 The only way to get FRED data programmatically. Set `FRED_KEY` in your `.env` file.
 
-```python
-import json, os
-FRED_KEY = os.environ["FRED_KEY"]   # 32-char lowercase alphanumeric
-BASE = "https://api.stlouisfed.org/fred"
+```ts
+const FRED_KEY = process.env.FRED_KEY!;   // 32-char lowercase alphanumeric
+const BASE = "https://api.stlouisfed.org/fred";
 ```
 
 ### Series metadata
 
-```python
-import json, os
-FRED_KEY = os.environ["FRED_KEY"]
-BASE = "https://api.stlouisfed.org/fred"
+```ts
+const FRED_KEY = process.env.FRED_KEY!;
+const BASE = "https://api.stlouisfed.org/fred";
 
-meta = json.loads(http_get(f"{BASE}/series?series_id=GDP&api_key={FRED_KEY}&file_type=json"))
-s = meta['seriess'][0]
-print(s['title'])               # "Gross Domestic Product"
-print(s['observation_start'])   # "1947-01-01"
-print(s['observation_end'])     # "2025-10-01"
-print(s['frequency'])           # "Quarterly"
-print(s['frequency_short'])     # "Q"
-print(s['units'])               # "Billions of Dollars"
-print(s['units_short'])         # "Bil. of $"
-print(s['seasonal_adjustment']) # "Seasonally Adjusted Annual Rate"
-print(s['popularity'])          # 81  (0-100)
-print(s['last_updated'])        # "2025-12-19 08:00:06-06"
+const meta = JSON.parse(await http_get(`${BASE}/series?series_id=GDP&api_key=${FRED_KEY}&file_type=json`));
+const s = meta.seriess[0];
+console.log(s.title);                // "Gross Domestic Product"
+console.log(s.observation_start);    // "1947-01-01"
+console.log(s.observation_end);      // "2025-10-01"
+console.log(s.frequency);            // "Quarterly"
+console.log(s.frequency_short);      // "Q"
+console.log(s.units);                // "Billions of Dollars"
+console.log(s.units_short);          // "Bil. of $"
+console.log(s.seasonal_adjustment);  // "Seasonally Adjusted Annual Rate"
+console.log(s.popularity);           // 81  (0-100)
+console.log(s.last_updated);         // "2025-12-19 08:00:06-06"
 ```
 
 ### Observations (the actual data)
 
-```python
-import json, os
-FRED_KEY = os.environ["FRED_KEY"]
-BASE = "https://api.stlouisfed.org/fred"
+```ts
+const FRED_KEY = process.env.FRED_KEY!;
+const BASE = "https://api.stlouisfed.org/fred";
 
-# Latest 10 values, most recent first
-obs = json.loads(http_get(
-    f"{BASE}/series/observations"
-    f"?series_id=GDP"
-    f"&api_key={FRED_KEY}"
-    f"&file_type=json"
-    f"&limit=10"
-    f"&sort_order=desc"      # "desc" = newest first, "asc" = oldest first (default)
-))
-print(obs['count'])              # 314  (total observations)
-print(obs['observation_start'])  # "1947-01-01"  (what's in the full series)
+// Latest 10 values, most recent first
+const obs = JSON.parse(await http_get(
+  `${BASE}/series/observations`
+  + `?series_id=GDP`
+  + `&api_key=${FRED_KEY}`
+  + `&file_type=json`
+  + `&limit=10`
+  + `&sort_order=desc`      // "desc" = newest first, "asc" = oldest first (default)
+));
+console.log(obs.count);              // 314  (total observations)
+console.log(obs.observation_start);  // "1947-01-01"  (what's in the full series)
 
-for o in obs['observations']:
-    date  = o['date']    # "2025-10-01"
-    value = o['value']   # "29726.4"  — always a STRING, may be "." for missing
-    if value != '.':
-        print(f"{date}: ${float(value):,.1f}B")
-# 2025-10-01: $29,726.4B
-# 2025-07-01: $29,339.1B
-# 2025-04-01: $29,119.3B
+for (const o of obs.observations) {
+  const date  = o.date;    // "2025-10-01"
+  const value = o.value;   // "29726.4"  — always a STRING, may be "." for missing
+  if (value !== ".") {
+    const fmt = parseFloat(value).toLocaleString("en-US", {minimumFractionDigits: 1, maximumFractionDigits: 1});
+    console.log(`${date}: $${fmt}B`);
+  }
+}
+// 2025-10-01: $29,726.4B
+// 2025-07-01: $29,339.1B
+// 2025-04-01: $29,119.3B
 ```
 
 ### Date-range filtering
 
-```python
-import json, os
-FRED_KEY = os.environ["FRED_KEY"]
-BASE = "https://api.stlouisfed.org/fred"
+```ts
+const FRED_KEY = process.env.FRED_KEY!;
+const BASE = "https://api.stlouisfed.org/fred";
 
-obs = json.loads(http_get(
-    f"{BASE}/series/observations"
-    f"?series_id=UNRATE"
-    f"&api_key={FRED_KEY}"
-    f"&file_type=json"
-    f"&observation_start=2020-01-01"
-    f"&observation_end=2024-12-31"
-    f"&sort_order=desc"
-))
-for o in obs['observations'][:5]:
-    print(f"{o['date']}: {o['value']}%")
-# 2024-12-01: 4.1%
-# 2024-11-01: 4.2%
-# 2024-10-01: 4.1%
+const obs = JSON.parse(await http_get(
+  `${BASE}/series/observations`
+  + `?series_id=UNRATE`
+  + `&api_key=${FRED_KEY}`
+  + `&file_type=json`
+  + `&observation_start=2020-01-01`
+  + `&observation_end=2024-12-31`
+  + `&sort_order=desc`
+));
+for (const o of obs.observations.slice(0, 5)) {
+  console.log(`${o.date}: ${o.value}%`);
+}
+// 2024-12-01: 4.1%
+// 2024-11-01: 4.2%
+// 2024-10-01: 4.1%
 ```
 
 ### Key series IDs
@@ -140,92 +140,88 @@ for o in obs['observations'][:5]:
 
 ### Series search
 
-```python
-import json, os
-FRED_KEY = os.environ["FRED_KEY"]
-BASE = "https://api.stlouisfed.org/fred"
+```ts
+const FRED_KEY = process.env.FRED_KEY!;
+const BASE = "https://api.stlouisfed.org/fred";
 
-results = json.loads(http_get(
-    f"{BASE}/series/search"
-    f"?search_text=unemployment+rate"
-    f"&api_key={FRED_KEY}"
-    f"&file_type=json"
-    f"&limit=5"
-    f"&order_by=popularity"    # "popularity" | "search_rank" | "series_id" | "title" | "units" | "frequency" | "seasonal_adjustment" | "realtime_start" | "realtime_end" | "last_updated" | "observation_start" | "observation_end"
-    f"&sort_order=desc"        # most popular first
-))
-for s in results['seriess']:
-    print(f"{s['id']}: {s['title']} ({s['frequency_short']}, {s['units_short']})")
-# UNRATE: Unemployment Rate (M, %)
-# UNEMPLOY: Unemployment Level (M, Thous. of Persons)
+const results = JSON.parse(await http_get(
+  `${BASE}/series/search`
+  + `?search_text=unemployment+rate`
+  + `&api_key=${FRED_KEY}`
+  + `&file_type=json`
+  + `&limit=5`
+  + `&order_by=popularity`    // "popularity" | "search_rank" | "series_id" | "title" | "units" | "frequency" | "seasonal_adjustment" | "realtime_start" | "realtime_end" | "last_updated" | "observation_start" | "observation_end"
+  + `&sort_order=desc`        // most popular first
+));
+for (const s of results.seriess) {
+  console.log(`${s.id}: ${s.title} (${s.frequency_short}, ${s.units_short})`);
+}
+// UNRATE: Unemployment Rate (M, %)
+// UNEMPLOY: Unemployment Level (M, Thous. of Persons)
 ```
 
 ### Multiple series — parallel fetch
 
-```python
-import json, os
-from concurrent.futures import ThreadPoolExecutor
-FRED_KEY = os.environ["FRED_KEY"]
-BASE = "https://api.stlouisfed.org/fred"
+```ts
+const FRED_KEY = process.env.FRED_KEY!;
+const BASE = "https://api.stlouisfed.org/fred";
 
-def fetch_latest(series_id):
-    obs = json.loads(http_get(
-        f"{BASE}/series/observations?series_id={series_id}"
-        f"&api_key={FRED_KEY}&file_type=json&limit=1&sort_order=desc"
-    ))
-    o = obs['observations'][0]
-    return series_id, o['date'], o['value']
+async function fetch_latest(series_id: string) {
+  const obs = JSON.parse(await http_get(
+    `${BASE}/series/observations?series_id=${series_id}`
+    + `&api_key=${FRED_KEY}&file_type=json&limit=1&sort_order=desc`
+  ));
+  const o = obs.observations[0];
+  return [series_id, o.date, o.value];
+}
 
-series_ids = ["GDP", "UNRATE", "CPIAUCSL", "FEDFUNDS", "DGS10", "SP500"]
-with ThreadPoolExecutor(max_workers=6) as ex:
-    results = list(ex.map(fetch_latest, series_ids))
+const series_ids = ["GDP", "UNRATE", "CPIAUCSL", "FEDFUNDS", "DGS10", "SP500"];
+const results = await Promise.all(series_ids.map(fetch_latest));
 
-for sid, date, val in results:
-    print(f"{sid:15} {date}: {val}")
-# GDP             2025-10-01: 29726.4
-# UNRATE          2026-03-01: 4.3
-# CPIAUCSL        2026-02-01: 321.457
-# FEDFUNDS        2026-03-01: 4.33
-# DGS10           2026-04-17: 4.34
-# SP500           2026-04-17: 5282.70
-# Confirmed: 6 parallel requests complete in ~0.4s
+for (const [sid, date, val] of results) {
+  console.log(`${sid.padEnd(15)} ${date}: ${val}`);
+}
+// GDP             2025-10-01: 29726.4
+// UNRATE          2026-03-01: 4.3
+// CPIAUCSL        2026-02-01: 321.457
+// FEDFUNDS        2026-03-01: 4.33
+// DGS10           2026-04-17: 4.34
+// SP500           2026-04-17: 5282.70
+// Confirmed: 6 parallel requests complete in ~0.4s
 ```
 
 ### Parse observations into a list of (date, float) tuples
 
-```python
-import json, os
-FRED_KEY = os.environ["FRED_KEY"]
-BASE = "https://api.stlouisfed.org/fred"
+```ts
+const FRED_KEY = process.env.FRED_KEY!;
+const BASE = "https://api.stlouisfed.org/fred";
 
-obs = json.loads(http_get(
-    f"{BASE}/series/observations?series_id=DGS10&api_key={FRED_KEY}&file_type=json"
-    f"&observation_start=2024-01-01&sort_order=asc"
-))
+const obs = JSON.parse(await http_get(
+  `${BASE}/series/observations?series_id=DGS10&api_key=${FRED_KEY}&file_type=json`
+  + `&observation_start=2024-01-01&sort_order=asc`
+));
 
-data = [
-    (o['date'], float(o['value']))
-    for o in obs['observations']
-    if o['value'] != '.'   # '.' = missing value, skip it
-]
-print(f"{len(data)} observations")
-print(f"First: {data[0]}")   # ('2024-01-02', 3.91)
-print(f"Last:  {data[-1]}")  # ('2026-04-17', 4.34)
+const data = obs.observations
+  .filter((o: any) => o.value !== ".")   // '.' = missing value, skip it
+  .map((o: any) => [o.date, parseFloat(o.value)]);
+console.log(`${data.length} observations`);
+console.log(`First: ${JSON.stringify(data[0])}`);              // ["2024-01-02",3.91]
+console.log(`Last:  ${JSON.stringify(data[data.length - 1])}`);  // ["2026-04-17",4.34]
 ```
 
 ### Handle errors
 
-```python
-import urllib.error, json
-
-try:
-    r = http_get(f"https://api.stlouisfed.org/fred/series?series_id=BADID&api_key={FRED_KEY}&file_type=json")
-    print(json.loads(r))
-except urllib.error.HTTPError as e:
-    err = json.loads(e.read().decode())
-    # err['error_code']     → 400
-    # err['error_message']  → "Bad Request.  The series does not exist."
-    print(f"FRED error {err['error_code']}: {err['error_message']}")
+```ts
+// http_get throws on non-2xx and drops the body; use fetch to read FRED's JSON error.
+const r = await fetch(`https://api.stlouisfed.org/fred/series?series_id=BADID&api_key=${FRED_KEY}&file_type=json`);
+if (r.ok) {
+  console.log(await r.json());
+} else {
+  const err = await r.json();
+  // err.error_code     → 400
+  // err.error_message  → "Bad Request.  The series does not exist."
+  console.log(`FRED error ${err.error_code}: ${err.error_message}`);
+}
 ```
 
 ---
@@ -234,46 +230,45 @@ except urllib.error.HTTPError as e:
 
 Bureau of Labor Statistics. Covers unemployment, CPI, payrolls — the most-queried FRED series. **Without a key: 10 requests/day limit.** Free key registration at `https://www.bls.gov/developers/` gives 500 req/day and 10 years of data per call (vs 3 years without key).
 
-```python
-import json
-# Single series GET — no auth needed
-r = http_get("https://api.bls.gov/publicAPI/v2/timeseries/data/LNS14000000?startyear=2024&endyear=2024")
-data = json.loads(r)
-# data['status'] == 'REQUEST_SUCCEEDED'
-series = data['Results']['series'][0]
-for point in series['data'][:3]:
-    print(f"{point['year']}-{point['period']} ({point['periodName']}): {point['value']}")
-# 2024-M12 (December): 4.1
-# 2024-M11 (November): 4.2
-# 2024-M10 (October): 4.1
+```ts
+// Single series GET — no auth needed
+const r = await http_get("https://api.bls.gov/publicAPI/v2/timeseries/data/LNS14000000?startyear=2024&endyear=2024");
+const data = JSON.parse(r);
+// data.status === 'REQUEST_SUCCEEDED'
+const series = data.Results.series[0];
+for (const point of series.data.slice(0, 3)) {
+  console.log(`${point.year}-${point.period} (${point.periodName}): ${point.value}`);
+}
+// 2024-M12 (December): 4.1
+// 2024-M11 (November): 4.2
+// 2024-M10 (October): 4.1
 ```
 
 ### Multi-series POST (single call, multiple series)
 
-```python
-import json, urllib.request
+```ts
+const payload = JSON.stringify({
+  seriesid: ["LNS14000000", "CUSR0000SA0", "CES0000000001"],
+  startyear: "2023",
+  endyear: "2024",
+  // registrationkey: "YOUR_BLS_KEY"  // optional: lifts to 500/day, 10yr range
+});
 
-payload = json.dumps({
-    "seriesid": ["LNS14000000", "CUSR0000SA0", "CES0000000001"],
-    "startyear": "2023",
-    "endyear": "2024"
-    # "registrationkey": "YOUR_BLS_KEY"  # optional: lifts to 500/day, 10yr range
-}).encode()
+const resp = await fetch("https://api.bls.gov/publicAPI/v2/timeseries/data/", {
+  method: "POST",
+  body: payload,
+  headers: {"Content-Type": "application/json"},
+  signal: AbortSignal.timeout(20_000),
+});
+const data = await resp.json();
 
-req = urllib.request.Request(
-    "https://api.bls.gov/publicAPI/v2/timeseries/data/",
-    data=payload,
-    headers={"Content-Type": "application/json"}
-)
-with urllib.request.urlopen(req, timeout=20) as resp:
-    data = json.loads(resp.read().decode())
-
-for s in data['Results']['series']:
-    pts = s['data']
-    print(f"{s['seriesID']}: {len(pts)} points, latest={pts[0]['value']}")
-# LNS14000000: 24 points, latest=4.1   (unemployment %)
-# CUSR0000SA0: 24 points, latest=317.604  (CPI index)
-# CES0000000001: 24 points, latest=158316  (nonfarm payrolls, thousands)
+for (const s of data.Results.series) {
+  const pts = s.data;
+  console.log(`${s.seriesID}: ${pts.length} points, latest=${pts[0].value}`);
+}
+// LNS14000000: 24 points, latest=4.1   (unemployment %)
+// CUSR0000SA0: 24 points, latest=317.604  (CPI index)
+// CES0000000001: 24 points, latest=158316  (nonfarm payrolls, thousands)
 ```
 
 ### Key BLS series (FRED equivalents)
@@ -303,48 +298,46 @@ for s in data['Results']['series']:
 
 Free, no registration, no rate limit observed (10 rapid calls completed in 2.0s). Annual data only — no monthly or quarterly frequency.
 
-```python
-import json
+```ts
+// Single country, single indicator
+const r = await http_get("https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD?format=json&per_page=5&mrv=5");
+const data = JSON.parse(r);
+const paging = data[0];   // {page: 1, pages: 1, per_page: 5, total: 5, lastupdated: '2026-04-08'}
+const items  = data[1];   // list of observations
 
-# Single country, single indicator
-r = http_get("https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.CD?format=json&per_page=5&mrv=5")
-data = json.loads(r)
-page_info = data[0]   # {'page': 1, 'pages': 1, 'per_page': 5, 'total': 5, 'lastupdated': '2026-04-08'}
-items     = data[1]   # list of observations
-
-for item in items:
-    if item['value']:
-        print(f"{item['date']}: ${item['value']/1e12:.2f}T")
-# 2024: $28.75T
-# 2023: $27.29T
-# 2022: $25.60T
+for (const item of items) {
+  if (item.value) console.log(`${item.date}: $${(item.value / 1e12).toFixed(2)}T`);
+}
+// 2024: $28.75T
+// 2023: $27.29T
+// 2022: $25.60T
 ```
 
 ### Date range filter and multi-country
 
-```python
-import json
+```ts
+// Historical range: date=YYYY:YYYY
+let r = await http_get("https://api.worldbank.org/v2/country/US/indicator/FP.CPI.TOTL.ZG?format=json&date=2015:2024&per_page=15");
+let data = JSON.parse(r);
+let items = data[1].filter((i: any) => i.value !== null);
+for (const item of items) {
+  console.log(`${item.date}: ${item.value.toFixed(2)}%`);
+}
+// 2024: 2.95%
+// 2023: 4.12%
+// 2022: 8.00%
+// ...
 
-# Historical range: date=YYYY:YYYY
-r = http_get("https://api.worldbank.org/v2/country/US/indicator/FP.CPI.TOTL.ZG?format=json&date=2015:2024&per_page=15")
-data = json.loads(r)
-items = [i for i in data[1] if i['value'] is not None]
-for item in items:
-    print(f"{item['date']}: {item['value']:.2f}%")
-# 2024: 2.95%
-# 2023: 4.12%
-# 2022: 8.00%
-# ...
-
-# Multi-country: semicolon-separated ISO codes
-r = http_get("https://api.worldbank.org/v2/country/US;CN;DE;JP;GB/indicator/NY.GDP.MKTP.CD?format=json&date=2023&per_page=10")
-data = json.loads(r)
-items = sorted([i for i in data[1] if i['value']], key=lambda x: x['value'], reverse=True)
-for item in items:
-    print(f"{item['country']['value']}: ${item['value']/1e12:.2f}T")
-# United States: $27.29T
-# China: $18.27T
-# Germany: $4.56T
+// Multi-country: semicolon-separated ISO codes
+r = await http_get("https://api.worldbank.org/v2/country/US;CN;DE;JP;GB/indicator/NY.GDP.MKTP.CD?format=json&date=2023&per_page=10");
+data = JSON.parse(r);
+items = data[1].filter((i: any) => i.value).sort((x: any, y: any) => y.value - x.value);
+for (const item of items) {
+  console.log(`${item.country.value}: $${(item.value / 1e12).toFixed(2)}T`);
+}
+// United States: $27.29T
+// China: $18.27T
+// Germany: $4.56T
 ```
 
 ### Key World Bank indicators (FRED equivalents)
@@ -365,21 +358,20 @@ for item in items:
 
 Some economic indicators work with the `demo` key (no registration); most require a free registered key (25 requests/day, instant signup at `https://www.alphavantage.co/support/#api-key`).
 
-```python
-import json
-AV_KEY = "demo"  # or your registered key
+```ts
+const AV_KEY = "demo";  // or your registered key
 
-# Unemployment rate (works with demo key — confirmed)
-r = http_get(f"https://www.alphavantage.co/query?function=UNEMPLOYMENT&apikey={AV_KEY}")
-data = json.loads(r)
-# data['name']  = 'Unemployment Rate'
-# data['interval'] = 'monthly'
-# data['unit']     = 'percent'
-# data['data']     → list of {date, value}, newest first
+// Unemployment rate (works with demo key — confirmed)
+const r = await http_get(`https://www.alphavantage.co/query?function=UNEMPLOYMENT&apikey=${AV_KEY}`);
+const data = JSON.parse(r);
+// data.name     = 'Unemployment Rate'
+// data.interval = 'monthly'
+// data.unit     = 'percent'
+// data.data     → list of {date, value}, newest first
 
-print(data['data'][0])   # {'date': '2026-03-01', 'value': '4.3'}
-print(f"Total: {len(data['data'])} months since {data['data'][-1]['date']}")
-# Total: 939 months since 1948-01-01
+console.log(data.data[0]);   // {date: '2026-03-01', value: '4.3'}
+console.log(`Total: ${data.data.length} months since ${data.data[data.data.length - 1].date}`);
+// Total: 939 months since 1948-01-01
 ```
 
 ### Which indicators work with demo vs registered key
@@ -398,23 +390,23 @@ print(f"Total: {len(data['data'])} months since {data['data'][-1]['date']}")
 | `TREASURY_YIELD` | NO (rate-limited) | YES |
 | `CONSUMER_SENTIMENT` | NO (rate-limited) | YES |
 
-```python
-import json
-AV_KEY = "YOUR_FREE_KEY"  # from alphavantage.co/support/#api-key
+```ts
+const AV_KEY = "YOUR_FREE_KEY";  // from alphavantage.co/support/#api-key
 
-# Federal Funds Rate — monthly (requires registered key)
-r = http_get(f"https://www.alphavantage.co/query?function=FEDERAL_FUNDS_RATE&interval=monthly&apikey={AV_KEY}")
-data = json.loads(r)
-for item in data['data'][:3]:
-    print(f"{item['date']}: {item['value']}%")
-# 2026-03-01: 4.33%
-# 2026-02-01: 4.33%
-# 2026-01-01: 4.33%
+// Federal Funds Rate — monthly (requires registered key)
+let r = await http_get(`https://www.alphavantage.co/query?function=FEDERAL_FUNDS_RATE&interval=monthly&apikey=${AV_KEY}`);
+let data = JSON.parse(r);
+for (const item of data.data.slice(0, 3)) {
+  console.log(`${item.date}: ${item.value}%`);
+}
+// 2026-03-01: 4.33%
+// 2026-02-01: 4.33%
+// 2026-01-01: 4.33%
 
-# 10-Year Treasury Yield
-r = http_get(f"https://www.alphavantage.co/query?function=TREASURY_YIELD&maturity=10year&interval=monthly&apikey={AV_KEY}")
-data = json.loads(r)
-print(data['data'][0])   # {'date': '2026-04-17', 'value': '4.34'}
+// 10-Year Treasury Yield
+r = await http_get(`https://www.alphavantage.co/query?function=TREASURY_YIELD&maturity=10year&interval=monthly&apikey=${AV_KEY}`);
+data = JSON.parse(r);
+console.log(data.data[0]);   // {date: '2026-04-17', value: '4.34'}
 ```
 
 ---
@@ -423,31 +415,31 @@ print(data['data'][0])   # {'date': '2026-04-17', 'value': '4.34'}
 
 When you need data from `fred.stlouisfed.org` that has no API equivalent (custom chart combos, release dates visible on page) — or when you have no API key — use the browser.
 
-```python
-# Navigate to a series page
-goto("https://fred.stlouisfed.org/series/GDP")
-wait_for_load()
+```ts
+// Navigate to a series page
+await goto("https://fred.stlouisfed.org/series/GDP");
+await wait_for_load();
 
-# Option 1: Intercept the fredgraph XHR that the chart fires
-# The page's chart JS calls fredgraph.csv internally — intercept it
-events = drain_events()
-# Look for network events with fredgraph.csv in URL
+// Option 1: Intercept the fredgraph XHR that the chart fires
+// The page's chart JS calls fredgraph.csv internally — intercept it
+const events = await drain_events();
+// Look for network events with fredgraph.csv in URL
 
-# Option 2: Extract the latest value from the page text
-latest_val = js("""
+// Option 2: Extract the latest value from the page text
+const latest_val = await js(`
     // The last observation appears in the meta section
     const el = document.querySelector('.series-meta-observation-end');
     el ? el.textContent.trim() : null
-""")
+`);
 
-# Option 3: Read the data table if present
-table_data = js("""
+// Option 3: Read the data table if present
+const table_data = await js(`
     const rows = Array.from(document.querySelectorAll('table.series-observations tr'));
     rows.map(r => {
         const cells = r.querySelectorAll('td');
         return cells.length >= 2 ? [cells[0].textContent.trim(), cells[1].textContent.trim()] : null;
     }).filter(Boolean);
-""")
+`);
 ```
 
 ---
@@ -472,7 +464,7 @@ table_data = js("""
 
 - **FRED API key is mandatory and must be exactly 32 lowercase alphanumeric chars** — "test", "demo", "guest", and keys shorter/longer than 32 chars all return HTTP 400: `"not a 32 character alpha-numeric lower-case string"`. An unregistered 32-char key returns: `"not registered"`.
 
-- **Observation values are always strings, not numbers** — The `value` field in FRED observations is always a JSON string: `"4.1"`, not `4.1`. Also `"."` (dot) means missing/not-yet-released. Always check `if o['value'] != '.'` before `float(o['value'])`.
+- **Observation values are always strings, not numbers** — The `value` field in FRED observations is always a JSON string: `"4.1"`, not `4.1`. Also `"."` (dot) means missing/not-yet-released. Always check `o.value !== "."` before `parseFloat(o.value)`.
 
 - **BLS 10 req/day without key burns fast** — The limit is per-IP per-day. 10 calls is exhausted in one moderate script run. Either register a free BLS key immediately or use World Bank for the same data annually.
 
@@ -480,7 +472,7 @@ table_data = js("""
 
 - **World Bank is annual only** — No monthly or quarterly data. For monthly UNRATE or CPI, use BLS. For quarterly GDP, use FRED API or Alpha Vantage `REAL_GDP`.
 
-- **World Bank response is a 2-element array** — `data[0]` is pagination metadata, `data[1]` is the observations list. Missing years have `value: null` (not `"."`). Filter with `if item['value'] is not None`.
+- **World Bank response is a 2-element array** — `data[0]` is pagination metadata, `data[1]` is the observations list. Missing years have `value: null` (not `"."`). Filter with `item.value !== null`.
 
 - **Alpha Vantage demo key: 2 req/sec, covers only 6 economic functions** — The other 6 economic functions (`REAL_GDP`, `CPI`, `TREASURY_YIELD`, etc.) return `{"Information": "The demo API key is for demo purposes only..."}`. No error code — just check for the `Information` key in the response.
 

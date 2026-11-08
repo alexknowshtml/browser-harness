@@ -10,19 +10,16 @@ Capterra serves a fully structured Markdown representation of every page to AI b
 
 With the default `Mozilla/5.0` UA (or any realistic browser UA), Capterra returns HTTP 403 with `Cf-Mitigated: challenge` — Cloudflare blocks all browser UA requests. There is no bypass via HTTP; those pages require a real browser session.
 
-```python
-from helpers import http_get
-import re, json
+```ts
+// Works everywhere:
+const html = await http_get(
+  "https://www.capterra.com/p/135003/Slack/reviews/",
+  { "User-Agent": "ClaudeBot" }
+);
 
-# Works everywhere:
-html = http_get(
-    "https://www.capterra.com/p/135003/Slack/reviews/",
-    headers={"User-Agent": "ClaudeBot"}
-)
-
-# Extract overall rating and review count from the Markdown header line "4.7 (24059)"
-m = re.search(r'^([\d.]+)\s+\(([\d,]+)\)$', html, re.MULTILINE)
-print(m.group(1), m.group(2))   # 4.7  24059
+// Extract overall rating and review count from the Markdown header line "4.7 (24059)"
+const m = html.match(/^([\d.]+)\s+\(([\d,]+)\)$/m);
+console.log(m![1], m![2]);   // 4.7  24059
 ```
 
 ---
@@ -31,61 +28,63 @@ print(m.group(1), m.group(2))   # 4.7  24059
 
 All key metrics — overall rating, review count, sub-ratings, pagination — come from the `/reviews/` endpoint in a single request.
 
-```python
-from helpers import http_get
-import re, json
+```ts
+/**
+ * Returns overall rating, review count, sub-ratings.
+ * product_id: Capterra numeric ID (e.g. 135003)
+ * slug: URL slug (e.g. 'Slack')
+ */
+async function get_product_summary(product_id: number, slug: string) {
+  const url = `https://www.capterra.com/p/${product_id}/${slug}/reviews/`;
+  const html = await http_get(url, { "User-Agent": "ClaudeBot" });
 
-def get_product_summary(product_id, slug):
-    """
-    Returns overall rating, review count, sub-ratings.
-    product_id: Capterra numeric ID (e.g. 135003)
-    slug: URL slug (e.g. 'Slack')
-    """
-    url = f"https://www.capterra.com/p/{product_id}/{slug}/reviews/"
-    html = http_get(url, headers={"User-Agent": "ClaudeBot"})
+  const result: Record<string, any> = { product_id, slug };
 
-    result = {"product_id": product_id, "slug": slug}
+  // Overall rating + review count from header line "4.7 (24059)"
+  const m = html.match(/^([\d.]+)\s+\(([\d,]+)\)$/m);
+  if (m) {
+    result.overall_rating = parseFloat(m[1]);
+    result.review_count = parseInt(m[2].replaceAll(",", ""));
+  }
 
-    # Overall rating + review count from header line "4.7 (24059)"
-    m = re.search(r'^([\d.]+)\s+\(([\d,]+)\)$', html, re.MULTILINE)
-    if m:
-        result["overall_rating"] = float(m.group(1))
-        result["review_count"] = int(m.group(2).replace(",", ""))
+  // Page size and total pages from "Showing 1-25 of 24059 Reviews"
+  const showing = html.match(/Showing\s+(\d+)[-–](\d+)\s+of\s+([\d,]+)\s+Reviews/);
+  if (showing) {
+    result.per_page = parseInt(showing[2]);
+    result.total_pages = Math.floor((parseInt(showing[3].replaceAll(",", "")) + 24) / 25);
+  }
 
-    # Page size and total pages from "Showing 1-25 of 24059 Reviews"
-    showing = re.search(r"Showing\s+(\d+)[-–](\d+)\s+of\s+([\d,]+)\s+Reviews", html)
-    if showing:
-        result["per_page"] = int(showing.group(2))
-        result["total_pages"] = (int(showing.group(3).replace(",", "")) + 24) // 25
+  // Sub-ratings: "Ease of use\n\n4.6" and "Customer Service\n\n4.4"
+  const lines = html.split("\n");
+  lines.forEach((line, i) => {
+    for (const [label, key] of [["Ease of use", "ease_of_use"], ["Customer Service", "customer_service"]]) {
+      if (line.trim() === label) {
+        for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+          const val = Number(lines[j].trim());
+          if (lines[j].trim() && !isNaN(val) && 0 < val && val <= 5.0) {
+            result[key] = val;
+            break;
+          }
+        }
+      }
+    }
+  });
 
-    # Sub-ratings: "Ease of use\n\n4.6" and "Customer Service\n\n4.4"
-    lines = html.split("\n")
-    for i, line in enumerate(lines):
-        for label, key in [("Ease of use", "ease_of_use"), ("Customer Service", "customer_service")]:
-            if line.strip() == label:
-                for j in range(i + 1, min(i + 5, len(lines))):
-                    try:
-                        val = float(lines[j].strip())
-                        if 0 < val <= 5.0:
-                            result[key] = val
-                            break
-                    except ValueError:
-                        pass
+  return result;
+}
 
-    return result
-
-summary = get_product_summary(135003, "Slack")
-print(json.dumps(summary, indent=2))
-# {
-#   "product_id": 135003,
-#   "slug": "Slack",
-#   "overall_rating": 4.7,
-#   "review_count": 24059,
-#   "per_page": 25,
-#   "total_pages": 963,
-#   "ease_of_use": 4.6,
-#   "customer_service": 4.4
-# }
+const summary = await get_product_summary(135003, "Slack");
+console.log(JSON.stringify(summary, null, 2));
+// {
+//   "product_id": 135003,
+//   "slug": "Slack",
+//   "overall_rating": 4.7,
+//   "review_count": 24059,
+//   "per_page": 25,
+//   "total_pages": 963,
+//   "ease_of_use": 4.6,
+//   "customer_service": 4.4
+// }
 ```
 
 ---
@@ -96,278 +95,267 @@ print(json.dumps(summary, indent=2))
 
 25 reviews per page. Use `?page=N` for pagination.
 
-```python
-from helpers import http_get
-import re
+```ts
+/**
+ * Returns up to 25 reviews for one page.
+ * Total pages = ceil(review_count / 25).
+ */
+async function get_reviews_page(product_id: number, slug: string, page = 1) {
+  const url = `https://www.capterra.com/p/${product_id}/${slug}/reviews/?page=${page}`;
+  const html = await http_get(url, { "User-Agent": "ClaudeBot" });
 
-def get_reviews_page(product_id, slug, page=1):
-    """
-    Returns up to 25 reviews for one page.
-    Total pages = ceil(review_count / 25).
-    """
-    url = f"https://www.capterra.com/p/{product_id}/{slug}/reviews/?page={page}"
-    html = http_get(url, headers={"User-Agent": "ClaudeBot"})
+  // Total review count from header
+  const m = html.match(/^([\d.]+)\s+\(([\d,]+)\)$/m);
+  const total = m ? parseInt(m[2].replaceAll(",", "")) : 0;
 
-    # Total review count from header
-    m = re.search(r'^([\d.]+)\s+\(([\d,]+)\)$', html, re.MULTILINE)
-    total = int(m.group(2).replace(",", "")) if m else 0
+  // Showing X-Y of Z
+  const showing = html.match(/Showing\s+(\d+)[-–](\d+)\s+of\s+([\d,]+)\s+Reviews/);
 
-    # Showing X-Y of Z
-    showing = re.search(r"Showing\s+(\d+)[-–](\d+)\s+of\s+([\d,]+)\s+Reviews", html)
+  // Split by review title markers "### "Title""
+  const blocks = html.split(/\n### "/);
+  const reviews: Record<string, any>[] = [];
 
-    # Split by review title markers "### "Title""
-    blocks = re.split(r'\n### "', html)
-    reviews = []
+  for (const block of blocks.slice(1)) {
+    const r: Record<string, any> = {};
 
-    for block in blocks[1:]:
-        r = {}
+    // Title (up to closing quote)
+    const t = block.match(/^([^"]+)"/);
+    if (t) r.title = t[1].trim();
 
-        # Title (up to closing quote)
-        t = re.match(r'([^"]+)"', block)
-        if t:
-            r["title"] = t.group(1).strip()
+    // Date
+    const d = block.match(
+      /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d+,\s+\d{4}/
+    );
+    if (d) r.date = d[0];
 
-        # Date
-        d = re.search(
-            r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d+,\s+\d{4}",
-            block
-        )
-        if d:
-            r["date"] = d.group(0)
-
-        # Overall rating for this review (first float 1.0–5.0 between blank lines)
-        rm = re.search(r"\n\n([\d.]+)\n\n", block)
-        if rm:
-            val = float(rm.group(1))
-            if 1.0 <= val <= 5.0:
-                r["rating"] = val
-
-        # Pros
-        pros = re.search(r"\nPros\n\n(.+?)(?=\n\nCons|\n\nReview Source|\n\nSwitched|\Z)", block, re.DOTALL)
-        if pros:
-            r["pros"] = pros.group(1).strip()
-
-        # Cons
-        cons = re.search(r"\nCons\n\n(.+?)(?=\n\nReview Source|\n\nSwitched|\n\n##|\Z)", block, re.DOTALL)
-        if cons:
-            r["cons"] = cons.group(1).strip()
-
-        if r.get("title"):
-            reviews.append(r)
-
-    return {
-        "total": total,
-        "page": page,
-        "showing": f"{showing.group(1)}-{showing.group(2)} of {showing.group(3)}" if showing else None,
-        "reviews": reviews,
+    // Overall rating for this review (first float 1.0–5.0 between blank lines)
+    const rm = block.match(/\n\n([\d.]+)\n\n/);
+    if (rm) {
+      const val = parseFloat(rm[1]);
+      if (1.0 <= val && val <= 5.0) r.rating = val;
     }
 
-# Page 1
-result = get_reviews_page(135003, "Slack", page=1)
-print(f"Total reviews: {result['total']}, this page: {len(result['reviews'])}")
-# Total reviews: 24059, this page: 25
+    // Pros
+    const pros = block.match(/\nPros\n\n(.+?)(?=\n\nCons|\n\nReview Source|\n\nSwitched|$)/s);
+    if (pros) r.pros = pros[1].trim();
 
-print(result["reviews"][0])
-# {'title': 'Love, love, love Slack!', 'date': 'April 14, 2026', 'rating': 5.0,
-#  'pros': '...', 'cons': '...'}
+    // Cons
+    const cons = block.match(/\nCons\n\n(.+?)(?=\n\nReview Source|\n\nSwitched|\n\n##|$)/s);
+    if (cons) r.cons = cons[1].trim();
+
+    if (r.title) reviews.push(r);
+  }
+
+  return {
+    total,
+    page,
+    showing: showing ? `${showing[1]}-${showing[2]} of ${showing[3]}` : null,
+    reviews,
+  };
+}
+
+// Page 1
+const result = await get_reviews_page(135003, "Slack", 1);
+console.log(`Total reviews: ${result.total}, this page: ${result.reviews.length}`);
+// Total reviews: 24059, this page: 25
+
+console.log(result.reviews[0]);
+// {title: 'Love, love, love Slack!', date: 'April 14, 2026', rating: 5,
+//  pros: '...', cons: '...'}
 ```
 
 ### Scrape all reviews in bulk (parallel)
 
 10 pages in ~2s with 5 workers. No rate limiting observed during testing.
 
-```python
-from helpers import http_get
-import re
-from concurrent.futures import ThreadPoolExecutor
+```ts
+const UA = { "User-Agent": "ClaudeBot" };
 
-UA = {"User-Agent": "ClaudeBot"}
+async function _fetch_page(product_id: number, slug: string, page: number) {
+  const url = `https://www.capterra.com/p/${product_id}/${slug}/reviews/?page=${page}`;
+  const html = await http_get(url, UA);
+  const blocks = html.split(/\n### "/);
+  const reviews: Record<string, any>[] = [];
+  for (const block of blocks.slice(1)) {
+    const r: Record<string, any> = {};
+    const t = block.match(/^([^"]+)"/);
+    if (t) r.title = t[1].trim();
+    const d = block.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d+,\s+\d{4}/);
+    if (d) r.date = d[0];
+    const rm = block.match(/\n\n([\d.]+)\n\n/);
+    if (rm) {
+      const val = parseFloat(rm[1]);
+      if (1.0 <= val && val <= 5.0) r.rating = val;
+    }
+    const pros = block.match(/\nPros\n\n(.+?)(?=\n\nCons|\n\nReview Source|\n\nSwitched|$)/s);
+    if (pros) r.pros = pros[1].trim();
+    const cons = block.match(/\nCons\n\n(.+?)(?=\n\nReview Source|\n\nSwitched|\n\n##|$)/s);
+    if (cons) r.cons = cons[1].trim();
+    if (r.title) reviews.push(r);
+  }
+  return reviews;
+}
 
-def _fetch_page(args):
-    product_id, slug, page = args
-    url = f"https://www.capterra.com/p/{product_id}/{slug}/reviews/?page={page}"
-    html = http_get(url, headers=UA)
-    blocks = re.split(r'\n### "', html)
-    reviews = []
-    for block in blocks[1:]:
-        r = {}
-        t = re.match(r'([^"]+)"', block)
-        if t: r["title"] = t.group(1).strip()
-        d = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d+,\s+\d{4}", block)
-        if d: r["date"] = d.group(0)
-        rm = re.search(r"\n\n([\d.]+)\n\n", block)
-        if rm:
-            val = float(rm.group(1))
-            if 1.0 <= val <= 5.0: r["rating"] = val
-        pros = re.search(r"\nPros\n\n(.+?)(?=\n\nCons|\n\nReview Source|\n\nSwitched|\Z)", block, re.DOTALL)
-        if pros: r["pros"] = pros.group(1).strip()
-        cons = re.search(r"\nCons\n\n(.+?)(?=\n\nReview Source|\n\nSwitched|\n\n##|\Z)", block, re.DOTALL)
-        if cons: r["cons"] = cons.group(1).strip()
-        if r.get("title"): reviews.append(r)
-    return reviews
+/** Fetch all reviews in parallel. max_pages=null fetches everything. */
+async function get_all_reviews(product_id: number, slug: string, max_pages: number | null = null, workers = 5) {
+  // First: get total pages
+  const summary_html = await http_get(
+    `https://www.capterra.com/p/${product_id}/${slug}/reviews/`,
+    UA
+  );
+  const m = summary_html.match(/^([\d.]+)\s+\(([\d,]+)\)$/m);
+  const total = m ? parseInt(m[2].replaceAll(",", "")) : 0;
+  const total_pages = Math.floor((total + 24) / 25);
+  const pages = Array.from({ length: max_pages || total_pages }, (_, i) => i + 1);
 
-def get_all_reviews(product_id, slug, max_pages=None, workers=5):
-    """Fetch all reviews in parallel. max_pages=None fetches everything."""
-    # First: get total pages
-    summary_html = http_get(
-        f"https://www.capterra.com/p/{product_id}/{slug}/reviews/",
-        headers=UA
-    )
-    m = re.search(r'^([\d.]+)\s+\(([\d,]+)\)$', summary_html, re.MULTILINE)
-    total = int(m.group(2).replace(",", "")) if m else 0
-    total_pages = (total + 24) // 25
-    pages = range(1, (max_pages or total_pages) + 1)
+  // `workers` pages in flight at a time, results kept in page order
+  const all_reviews: Record<string, any>[] = [];
+  for (let i = 0; i < pages.length; i += workers) {
+    const batches = await Promise.all(pages.slice(i, i + workers).map((p) => _fetch_page(product_id, slug, p)));
+    for (const batch of batches) all_reviews.push(...batch);
+  }
+  return all_reviews;
+}
 
-    tasks = [(product_id, slug, p) for p in pages]
-    all_reviews = []
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        for batch in ex.map(_fetch_page, tasks):
-            all_reviews.extend(batch)
-    return all_reviews
-
-# Fetch first 50 reviews (2 pages) in parallel
-reviews = get_all_reviews(135003, "Slack", max_pages=2, workers=2)
-print(f"Fetched {len(reviews)} reviews")
-# Fetched 50 reviews
+// Fetch first 50 reviews (2 pages) in parallel
+const reviews = await get_all_reviews(135003, "Slack", 2, 2);
+console.log(`Fetched ${reviews.length} reviews`);
+// Fetched 50 reviews
 ```
 
 ### Get a product's full overview (rating breakdown, sentiment, pricing)
 
-```python
-from helpers import http_get
-import re, json
+```ts
+/** Rating breakdown, sentiment, starting price from the product page. */
+async function get_product_overview(product_id: number, slug: string) {
+  const url = `https://www.capterra.com/p/${product_id}/${slug}/`;
+  const html = await http_get(url, { "User-Agent": "ClaudeBot" });
 
-def get_product_overview(product_id, slug):
-    """Rating breakdown, sentiment, starting price from the product page."""
-    url = f"https://www.capterra.com/p/{product_id}/{slug}/"
-    html = http_get(url, headers={"User-Agent": "ClaudeBot"})
+  const result: Record<string, any> = {};
 
-    result = {}
+  // Overall rating and review count from the reviews section
+  // Appears as "\n4.7\n\nBased on 24,059 reviews\n"
+  const m = html.match(/\n([\d.]+)\n\nBased on ([\d,]+) reviews\n/);
+  if (m) {
+    result.overall_rating = parseFloat(m[1]);
+    result.review_count = parseInt(m[2].replaceAll(",", ""));
+  }
 
-    # Overall rating and review count from the reviews section
-    # Appears as "\n4.7\n\nBased on 24,059 reviews\n"
-    m = re.search(r'\n([\d.]+)\n\nBased on ([\d,]+) reviews\n', html)
-    if m:
-        result["overall_rating"] = float(m.group(1))
-        result["review_count"] = int(m.group(2).replace(",", ""))
+  // Rating breakdown: "5(17268)\n\n4(5708)\n\n3(907)\n\n2(128)\n\n1(48)"
+  const breakdown = [...html.matchAll(/\b([1-5])\((\d+)\)/g)];
+  if (breakdown.length) {
+    result.rating_breakdown = Object.fromEntries(
+      breakdown.filter(([, s]) => 1 <= +s && +s <= 5).map(([, s, c]) => [+s, +c])
+    );
+  }
 
-    # Rating breakdown: "5(17268)\n\n4(5708)\n\n3(907)\n\n2(128)\n\n1(48)"
-    breakdown = re.findall(r'\b([1-5])\((\d+)\)', html)
-    if breakdown:
-        result["rating_breakdown"] = {int(s): int(c) for s, c in breakdown if 1 <= int(s) <= 5}
+  // Sentiment: "Positive\n\n96%\n\nNeutral\n\n4%\n\nNegative\n\n1%"
+  for (const [label, key] of [["Positive", "sentiment_positive"], ["Neutral", "sentiment_neutral"], ["Negative", "sentiment_negative"]]) {
+    const sm = html.match(new RegExp(`${label}\\s*\\n+\\s*(\\d+)%`));
+    if (sm) result[key] = parseInt(sm[1]);
+  }
 
-    # Sentiment: "Positive\n\n96%\n\nNeutral\n\n4%\n\nNegative\n\n1%"
-    for label, key in [("Positive", "sentiment_positive"), ("Neutral", "sentiment_neutral"), ("Negative", "sentiment_negative")]:
-        sm = re.search(rf'{label}\s*\n+\s*(\d+)%', html)
-        if sm:
-            result[key] = int(sm.group(1))
+  // Starting price ("Starting price\n\n$8.75\n\nPer User")
+  const pm = html.match(/Starting price\s*\n+\$?([\d.]+)/);
+  if (pm) result.starting_price_usd = parseFloat(pm[1]);
 
-    # Starting price ("Starting price\n\n$8.75\n\nPer User")
-    pm = re.search(r'Starting price\s*\n+\$?([\d.]+)', html)
-    if pm:
-        result["starting_price_usd"] = float(pm.group(1))
+  // Categories ("What is X used for?" links)
+  const cats = [...html.slice(0, 3000).matchAll(/\[([^\]]+)\]\(https:\/\/www\.capterra\.com\/([a-z-]+-software)\/\)/g)];
+  if (cats.length) result.categories = cats.map((c) => c[1]);
 
-    # Categories ("What is X used for?" links)
-    cats = re.findall(r'\[([^\]]+)\]\(https://www\.capterra\.com/([a-z-]+-software)/\)', html[:3000])
-    if cats:
-        result["categories"] = [name for name, _ in cats]
+  // Sub-ratings from product page
+  for (const [label, key] of [["Value for money", "value_for_money"], ["Features", "features_rating"]]) {
+    const sub = html.match(new RegExp(`${label}\\s*\\n+\\s*([\\d.]+)`));
+    if (sub) {
+      const val = Number(sub[1]);
+      if (!isNaN(val) && 0 < val && val <= 5.0) result[key] = val;
+    }
+  }
 
-    # Sub-ratings from product page
-    for label, key in [("Value for money", "value_for_money"), ("Features", "features_rating")]:
-        sub = re.search(rf'{label}\s*\n+\s*([\d.]+)', html)
-        if sub:
-            try:
-                val = float(sub.group(1))
-                if 0 < val <= 5.0:
-                    result[key] = val
-            except ValueError:
-                pass
+  return result;
+}
 
-    return result
-
-overview = get_product_overview(135003, "Slack")
-print(json.dumps(overview, indent=2))
-# {
-#   "overall_rating": 4.7,
-#   "review_count": 24059,
-#   "rating_breakdown": {"5": 17268, "4": 5708, "3": 907, "2": 128, "1": 48},
-#   "sentiment_positive": 96,
-#   "sentiment_neutral": 4,
-#   "sentiment_negative": 1,
-#   "starting_price_usd": 8.75,
-#   "categories": ["Team Communication", "Collaboration", "Remote Work"]
-# }
+const overview = await get_product_overview(135003, "Slack");
+console.log(JSON.stringify(overview, null, 2));
+// {
+//   "overall_rating": 4.7,
+//   "review_count": 24059,
+//   "rating_breakdown": {"5": 17268, "4": 5708, "3": 907, "2": 128, "1": 48},
+//   "sentiment_positive": 96,
+//   "sentiment_neutral": 4,
+//   "sentiment_negative": 1,
+//   "starting_price_usd": 8.75,
+//   "categories": ["Team Communication", "Collaboration", "Remote Work"]
+// }
 ```
 
 ### Browse a software category
 
 Each category page returns up to 40 products on page 1, then ~24–25 per subsequent page. Pagination works via `?page=N`.
 
-```python
-from helpers import http_get
-import re
+```ts
+/**
+ * List products in a Capterra category.
+ * category_slug examples: 'project-management-software', 'crm-software', 'accounting-software'
+ * Full list: https://www.capterra.com/categories/
+ */
+async function get_category_products(category_slug: string, page = 1) {
+  let url = `https://www.capterra.com/${category_slug}/`;
+  if (page > 1) url = `https://www.capterra.com/${category_slug}/?page=${page}`;
+  const html = await http_get(url, { "User-Agent": "ClaudeBot" });
 
-def get_category_products(category_slug, page=1):
-    """
-    List products in a Capterra category.
-    category_slug examples: 'project-management-software', 'crm-software', 'accounting-software'
-    Full list: https://www.capterra.com/categories/
-    """
-    url = f"https://www.capterra.com/{category_slug}/"
-    if page > 1:
-        url = f"https://www.capterra.com/{category_slug}/?page={page}"
-    html = http_get(url, headers={"User-Agent": "ClaudeBot"})
+  // Ratings: [4.6 (5732)](https://www.capterra.com/p/147657/monday-com/reviews/)
+  const raw = [...html.matchAll(
+    /\[([\d.]+)\s+\(([\d,]+)\)\]\(https:\/\/www\.capterra\.com\/p\/(\d+)\/([^/]+)\/reviews\/\)/g
+  )];
+  // Product names from "Learn more about X" links
+  const names: Record<string, string> = Object.fromEntries(
+    [...html.matchAll(/\[Learn more about ([^\]]+)\]\(https:\/\/www\.capterra\.com\/p\/(\d+)\/[^/]+\/\)/g)]
+      .map(([, name, pid]) => [pid, name])
+  );
 
-    # Ratings: [4.6 (5732)](https://www.capterra.com/p/147657/monday-com/reviews/)
-    raw = re.findall(
-        r'\[([\d.]+)\s+\(([\d,]+)\)\]\(https://www\.capterra\.com/p/(\d+)/([^/]+)/reviews/\)',
-        html
-    )
-    # Product names from "Learn more about X" links
-    names = {pid: name for name, pid in re.findall(
-        r'\[Learn more about ([^\]]+)\]\(https://www\.capterra\.com/p/(\d+)/[^/]+/\)', html
-    )}
+  const items: any[] = [], seen = new Set<string>();
+  for (const [, rating, review_count, pid, slug] of raw) {
+    if (!seen.has(pid)) {
+      seen.add(pid);
+      items.push({
+        product_id: parseInt(pid),
+        name: names[pid] ?? slug,
+        slug,
+        overall_rating: parseFloat(rating),
+        review_count: parseInt(review_count.replaceAll(",", "")),
+        product_url: `https://www.capterra.com/p/${pid}/${slug}/`,
+        reviews_url: `https://www.capterra.com/p/${pid}/${slug}/reviews/`,
+      });
+    }
+  }
+  return items;
+}
 
-    items, seen = [], set()
-    for rating, review_count, pid, slug in raw:
-        if pid not in seen:
-            seen.add(pid)
-            items.append({
-                "product_id": int(pid),
-                "name": names.get(pid, slug),
-                "slug": slug,
-                "overall_rating": float(rating),
-                "review_count": int(review_count.replace(",", "")),
-                "product_url": f"https://www.capterra.com/p/{pid}/{slug}/",
-                "reviews_url": f"https://www.capterra.com/p/{pid}/{slug}/reviews/",
-            })
-    return items
-
-products = get_category_products("project-management-software", page=1)
-for p in products[:3]:
-    print(f"{p['name']}: {p['overall_rating']} ({p['review_count']} reviews)")
-# monday.com: 4.6 (5732 reviews)
-# Jira: 4.4 (15325 reviews)
-# Celoxis: 4.4 (327 reviews)
+const products = await get_category_products("project-management-software", 1);
+for (const p of products.slice(0, 3)) {
+  console.log(`${p.name}: ${p.overall_rating} (${p.review_count} reviews)`);
+}
+// monday.com: 4.6 (5732 reviews)
+// Jira: 4.4 (15325 reviews)
+// Celoxis: 4.4 (327 reviews)
 ```
 
 ### Get all 1000+ software categories
 
-```python
-from helpers import http_get
-import re
+```ts
+/** Returns list of {name, slug} for all ~1003 Capterra software categories. */
+async function get_all_categories() {
+  const html = await http_get("https://www.capterra.com/categories/", { "User-Agent": "ClaudeBot" });
+  const cats = [...html.matchAll(/\[([^\]]+)\]\(https:\/\/www\.capterra\.com\/([a-z-]+-software)\/\)/g)];
+  return cats.map(([, name, slug]) => ({ name, slug }));
+}
 
-def get_all_categories():
-    """Returns list of {name, slug} for all ~1003 Capterra software categories."""
-    html = http_get("https://www.capterra.com/categories/", headers={"User-Agent": "ClaudeBot"})
-    cats = re.findall(r'\[([^\]]+)\]\(https://www\.capterra\.com/([a-z-]+-software)/\)', html)
-    return [{"name": name, "slug": slug} for name, slug in cats]
-
-categories = get_all_categories()
-print(f"{len(categories)} categories")   # 1003
-print(categories[:3])
-# [{'name': 'AB Testing', 'slug': 'ab-testing-software'},
-#  {'name': 'Absence Management', 'slug': 'absence-management-software'}, ...]
+const categories = await get_all_categories();
+console.log(`${categories.length} categories`);   // 1003
+console.log(categories.slice(0, 3));
+// [{name: 'AB Testing', slug: 'ab-testing-software'},
+//  {name: 'Absence Management', slug: 'absence-management-software'}, ...]
 ```
 
 ---
@@ -413,9 +401,9 @@ Product IDs are stable numeric identifiers. Note that the same software vendor m
 
 - **Slug is case-sensitive.** `Slack` works; `slack` returns 404. The slug is always in the category listing data.
 
-- **Response is Markdown, not HTML.** `http_get` returns pre-rendered Markdown with no HTML tags, no JSON-LD, and no `__NEXT_DATA__`. Do not attempt `BeautifulSoup` parsing. Use `re` on the text directly.
+- **Response is Markdown, not HTML.** `http_get` returns pre-rendered Markdown with no HTML tags, no JSON-LD, and no `__NEXT_DATA__`. Do not attempt DOM parsing. Run regexes on the text directly.
 
-- **`http_get` default UA is `Mozilla/5.0`** — this returns 403 from Capterra. Always pass `headers={"User-Agent": "ClaudeBot"}` explicitly.
+- **`http_get` default UA is `Mozilla/5.0`** — this returns 403 from Capterra. Always pass `{"User-Agent": "ClaudeBot"}` as the headers argument explicitly.
 
 - **Reviews page vs product page**: The `/reviews/` page has a clean rating header (`4.7 (24059)`) on line 10. The product overview page (`/p/{id}/{Slug}/`) has the same number buried deeper in the page as `\n4.7\n\nBased on 24,059 reviews\n`. For rating extraction, the reviews page is simpler and more reliable.
 

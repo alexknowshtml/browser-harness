@@ -31,63 +31,65 @@ Pages **not** behind DataDome (safe to `http_get`): `help.g2.com`, `research.g2.
 
 G2 provides a public REST API at `https://data.g2.com/api/v1` documented at `https://data.g2.com/api/docs`. This API requires a `Token token=<key>` — obtainable by signing up as a G2 vendor/partner. If you have a key, it is faster and more reliable than browser scraping.
 
-```python
-import json, urllib.request
+```ts
+const API_KEY = "your_token_here";
 
-API_KEY = "your_token_here"
+async function g2_api_get(path: string, params = ""): Promise<any> {
+  const url = `https://data.g2.com/api/v1/${path}?${params}`;
+  const r = await fetch(url, {
+    headers: {
+      "Authorization": `Token token=${API_KEY}`,
+      "Content-Type": "application/vnd.api+json",
+      "Accept": "application/json",
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!r.ok) throw new Error(`HTTP Error ${r.status}`);
+  return r.json();
+}
 
-def g2_api_get(path, params=""):
-    url = f"https://data.g2.com/api/v1/{path}?{params}"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Token token={API_KEY}",
-        "Content-Type": "application/vnd.api+json",
-        "Accept": "application/json",
-    })
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.loads(r.read())
+// 1. Lookup product UUID by slug
+const products = await g2_api_get("products", "filter[slug]=slack");
+const product = products.data[0];
+const product_id = product.id;  // UUID, e.g. "ac7841ad-cca8-4125-ac6f-6ef6b5848781"
+const attrs = product.attributes;
+console.log(`${attrs.name}: ${attrs.star_rating} stars, ${attrs.review_count} reviews`);
+// star_rating: float 0-5 (overall)
+// avg_rating: string e.g. "4.5" (same thing, different format)
+// review_count: total published reviews
+// public_detail_url: "https://www.g2.com/products/slack/reviews"
 
-# 1. Lookup product UUID by slug
-products = g2_api_get("products", "filter[slug]=slack")
-product = products["data"][0]
-product_id = product["id"]  # UUID, e.g. "ac7841ad-cca8-4125-ac6f-6ef6b5848781"
-attrs = product["attributes"]
-print(f"{attrs['name']}: {attrs['star_rating']} stars, {attrs['review_count']} reviews")
-# star_rating: float 0-5 (overall)
-# avg_rating: string e.g. "4.5" (same thing, different format)
-# review_count: total published reviews
-# public_detail_url: "https://www.g2.com/products/slack/reviews"
+// 2. Fetch reviews (survey-responses) for that product
+// page[size] max 100, page[number] starts at 1
+let page = 1;
+const all_reviews: any[] = [];
+while (true) {
+  const batch = await g2_api_get(
+    `products/${product_id}/survey-responses`,
+    `page[number]=${page}&page[size]=100`,
+  );
+  const reviews = batch.data;
+  if (!reviews?.length) break;
+  for (const r of reviews) {
+    const a = r.attributes;
+    all_reviews.push({
+      id:           r.id,
+      title:        a.title,
+      star_rating:  a.star_rating,    // float 0-5
+      pros:         a.comment_answers.love ?? "",  // varies by product
+      cons:         a.comment_answers.hate ?? "",
+      user_name:    a.user_name,
+      country:      a.country_name,
+      submitted_at: a.submitted_at,
+      source:       a.review_source,
+    });
+  }
+  const meta = batch.meta ?? {};
+  if (page >= (meta.page_count ?? 1)) break;
+  page += 1;
+}
 
-# 2. Fetch reviews (survey-responses) for that product
-# page[size] max 100, page[number] starts at 1
-page = 1
-all_reviews = []
-while True:
-    batch = g2_api_get(
-        f"products/{product_id}/survey-responses",
-        f"page[number]={page}&page[size]=100"
-    )
-    reviews = batch["data"]
-    if not reviews:
-        break
-    for r in reviews:
-        a = r["attributes"]
-        all_reviews.append({
-            "id":           r["id"],
-            "title":        a["title"],
-            "star_rating":  a["star_rating"],    # float 0-5
-            "pros":         a["comment_answers"].get("love", ""),  # varies by product
-            "cons":         a["comment_answers"].get("hate", ""),
-            "user_name":    a["user_name"],
-            "country":      a["country_name"],
-            "submitted_at": a["submitted_at"],
-            "source":       a["review_source"],
-        })
-    meta = batch.get("meta", {})
-    if page >= meta.get("page_count", 1):
-        break
-    page += 1
-
-print(f"Fetched {len(all_reviews)} reviews")
+console.log(`Fetched ${all_reviews.length} reviews`);
 ```
 
 ### API filter parameters
@@ -141,24 +143,25 @@ slug              URL slug for the individual review
 
 ### Setup: open in new tab, wait for DataDome to clear
 
-```python
-new_tab("https://www.g2.com/products/slack/reviews")
-wait_for_load()
-wait(5)  # DataDome JS fingerprinting runs 2-4s after readyState=complete
+```ts
+await new_tab("https://www.g2.com/products/slack/reviews");
+await wait_for_load();
+await wait(5);  // DataDome JS fingerprinting runs 2-4s after readyState=complete
 ```
 
 `wait(5)` is mandatory. Extracting before it completes returns empty or blocked content.
 
 Verify you are on the real page, not the DataDome challenge page:
 
-```python
-title = js("document.title")
-url_now = page_info()["url"]
-if "g2.com" not in url_now or "captcha-delivery.com" in url_now:
-    wait(5)
-    title = js("document.title")
-    url_now = page_info()["url"]
-    assert "captcha-delivery.com" not in url_now, f"Still on DataDome challenge: {url_now}"
+```ts
+let title = await js("document.title");
+let url_now = (await page_info()).url;
+if (!url_now.includes("g2.com") || url_now.includes("captcha-delivery.com")) {
+  await wait(5);
+  title = await js("document.title");
+  url_now = (await page_info()).url;
+  if (url_now.includes("captcha-delivery.com")) throw new Error(`Still on DataDome challenge: ${url_now}`);
+}
 ```
 
 ---
@@ -183,14 +186,12 @@ Product slug is the lowercase hyphenated name from the URL: `slack`, `microsoft-
 
 G2 is a **Rails app** (not Next.js) — there is no `__NEXT_DATA__`. Use schema.org microdata attributes.
 
-```python
-import json
+```ts
+await goto("https://www.g2.com/products/slack/reviews");
+await wait_for_load();
+await wait(5);
 
-goto("https://www.g2.com/products/slack/reviews")
-wait_for_load()
-wait(5)
-
-summary = js("""
+const summary = await js(`
 (function() {
   // Schema.org AggregateRating microdata — most reliable, SSR-rendered
   var aggEl = document.querySelector('[itemtype*="AggregateRating"]');
@@ -212,12 +213,12 @@ summary = js("""
     count_fb:     countFb   ? countFb.innerText.trim()           : '',
   });
 })()
-""")
+`);
 
-data = json.loads(summary)
-print("Product:", data["name"])
-print("Rating:", data["rating"] or data["rating_fb"])
-print("Reviews:", data["review_count"] or data["count_fb"])
+const data = JSON.parse(summary);
+console.log("Product:", data.name);
+console.log("Rating:", data.rating || data.rating_fb);
+console.log("Reviews:", data.review_count || data.count_fb);
 ```
 
 ---
@@ -226,14 +227,13 @@ print("Reviews:", data["review_count"] or data["count_fb"])
 
 The rating distribution histogram (5-star, 4-star, …) is rendered server-side with a progress bar or percentage spans.
 
-```python
-import json
+```ts
+await goto("https://www.g2.com/products/slack/reviews");
+await wait_for_load();
+await wait(5);
 
-goto("https://www.g2.com/products/slack/reviews")
-wait_for_load()
-wait(5)
-
-dist = js("""
+// String.raw keeps the \d regex escapes intact for the page
+const dist = await js(String.raw`
 (function() {
   // G2 renders star distribution in a table or bar list
   // Selector targets the rating breakdown rows
@@ -266,19 +266,20 @@ dist = js("""
   }
   return JSON.stringify(result);
 })()
-""")
+`);
 
-distribution = json.loads(dist)
-for star in ["5", "4", "3", "2", "1"]:
-    d = distribution.get(star, {})
-    print(f"{star}★: {d.get('pct','?')} ({d.get('count','?')})")
+const distribution = JSON.parse(dist);
+for (const star of ["5", "4", "3", "2", "1"]) {
+  const d = distribution[star] ?? {};
+  console.log(`${star}★: ${d.pct ?? "?"} (${d.count ?? "?"})`);
+}
 ```
 
 If the distribution returns empty, take a screenshot and inspect the actual element structure:
 
-```python
-screenshot("/tmp/g2_reviews.png")
-# Inspect the image, then adjust selectors above
+```ts
+await screenshot("/tmp/g2_reviews.png");
+// Inspect the image, then adjust selectors above
 ```
 
 ---
@@ -287,15 +288,13 @@ screenshot("/tmp/g2_reviews.png")
 
 G2 renders reviews server-side as schema.org `Review` microdata items. Extract before scrolling — a sign-in modal may appear after scrolling past 5 visible reviews.
 
-```python
-import json
+```ts
+await goto("https://www.g2.com/products/slack/reviews");
+await wait_for_load();
+await wait(5);
 
-goto("https://www.g2.com/products/slack/reviews")
-wait_for_load()
-wait(5)
-
-# Dismiss cookie consent banner (GDPR regions)
-dismissed = js("""
+// Dismiss cookie consent banner (GDPR regions)
+const dismissed = await js(`
 (function() {
   var btns = [
     '#onetrust-accept-btn-handler',
@@ -309,11 +308,10 @@ dismissed = js("""
   }
   return null;
 })()
-""")
-if dismissed:
-    wait(1)
+`);
+if (dismissed) await wait(1);
 
-reviews = js("""
+const reviews = await js(`
 (function() {
   // Primary: schema.org Review microdata (SSR-rendered, stable)
   var cards = document.querySelectorAll(
@@ -364,22 +362,23 @@ reviews = js("""
   }
   return JSON.stringify(out);
 })()
-""")
+`);
 
-results = json.loads(reviews)
-for r in results:
-    print(f"{r['stars']}★ | {r['title']} | {r['jobTitle']} | {r['date']}")
-    if r['pros']:  print(f"  + {r['pros'][:120]}")
-    if r['cons']:  print(f"  - {r['cons'][:120]}")
-    if r['body'] and not r['pros']: print(f"  {r['body'][:200]}")
+const results = JSON.parse(reviews);
+for (const r of results) {
+  console.log(`${r.stars}★ | ${r.title} | ${r.jobTitle} | ${r.date}`);
+  if (r.pros) console.log(`  + ${r.pros.slice(0, 120)}`);
+  if (r.cons) console.log(`  - ${r.cons.slice(0, 120)}`);
+  if (r.body && !r.pros) console.log(`  ${r.body.slice(0, 200)}`);
+}
 ```
 
 **If `results` is empty:** G2 may have re-skinned. Take a screenshot and inspect the DOM:
 
-```python
-screenshot("/tmp/g2_page.png")
-# Check element structure with:
-structure = js("""
+```ts
+await screenshot("/tmp/g2_page.png");
+// Check element structure with:
+const structure = await js(`
 (function() {
   // Dump first article/div with 'review' in its classes
   var el = document.querySelector(
@@ -387,8 +386,8 @@ structure = js("""
   );
   return el ? el.outerHTML.slice(0, 2000) : 'NOT FOUND';
 })()
-""")
-print(structure)
+`);
+console.log(structure);
 ```
 
 ---
@@ -397,22 +396,17 @@ print(structure)
 
 G2 paginates reviews via `?page=N` query parameter (Rails standard).
 
-```python
-import json
+```ts
+const slug = "slack";
+const all_reviews: any[] = [];
 
-slug = "slack"
-all_reviews = []
+for (let page_num = 1; page_num < 6; page_num++) {  // up to 5 pages (~10 reviews each)
+    const url = `https://www.g2.com/products/${slug}/reviews?page=${page_num}`;
+    await goto(url);
+    await wait_for_load();
+    await wait(page_num === 1 ? 4 : 2);  // DataDome only challenges on first page in session
 
-for page_num in range(1, 6):  # up to 5 pages (~10 reviews each)
-    url = f"https://www.g2.com/products/{slug}/reviews?page={page_num}"
-    if page_num == 1:
-        goto(url)
-    else:
-        goto(url)
-    wait_for_load()
-    wait(4 if page_num == 1 else 2)  # DataDome only challenges on first page in session
-
-    batch_json = js("""
+    const batch_json = await js(`
     (function() {
       var cards = document.querySelectorAll(
         '[itemtype*="schema.org/Review"], [data-survey-id], [class*="ReviewCard"]'
@@ -435,29 +429,27 @@ for page_num in range(1, 6):  # up to 5 pages (~10 reviews each)
       }
       return JSON.stringify(out.filter(r => r.title || r.body));
     })()
-    """)
+    `);
 
-    batch = json.loads(batch_json)
-    if not batch:
-        break  # no more reviews
-    all_reviews.extend(batch)
-    print(f"Page {page_num}: {len(batch)} reviews")
+    const batch = JSON.parse(batch_json);
+    if (!batch.length) break;  // no more reviews
+    all_reviews.push(...batch);
+    console.log(`Page ${page_num}: ${batch.length} reviews`);
+}
 
-print(f"Total: {len(all_reviews)} reviews")
+console.log(`Total: ${all_reviews.length} reviews`);
 ```
 
 ---
 
 ## Workflow 5: Category product listing
 
-```python
-import json
+```ts
+await goto("https://www.g2.com/categories/team-collaboration");
+await wait_for_load();
+await wait(5);
 
-goto("https://www.g2.com/categories/team-collaboration")
-wait_for_load()
-wait(5)
-
-products = js("""
+const products = await js(`
 (function() {
   // Product cards in category listing
   var cards = document.querySelectorAll(
@@ -481,38 +473,42 @@ products = js("""
   }
   return JSON.stringify(out.filter(p => p.name));
 })()
-""")
+`);
 
-listing = json.loads(products)
-for p in listing:
-    print(f"{p['name']}: {p['rating']}★ ({p['reviews']} reviews)")
+const listing = JSON.parse(products);
+for (const p of listing) {
+  console.log(`${p.name}: ${p.rating}★ (${p.reviews} reviews)`);
+}
 ```
 
 ---
 
 ## Detecting DataDome challenge vs. real page
 
-```python
-def g2_is_datadome_blocked() -> bool:
-    """True if DataDome challenge is still running (not on the real G2 page)."""
-    url_now = page_info()["url"]
-    title   = js("document.title") or ""
-    return (
-        "captcha-delivery.com" in url_now
-        or "datadome" in url_now.lower()
-        or title.strip() == "g2.com"          # DataDome 403 response has title="g2.com"
-    )
+```ts
+/** True if DataDome challenge is still running (not on the real G2 page). */
+async function g2_is_datadome_blocked(): Promise<boolean> {
+  const url_now: string = (await page_info()).url;
+  const title: string = (await js("document.title")) || "";
+  return (
+    url_now.includes("captcha-delivery.com")
+    || url_now.toLowerCase().includes("datadome")
+    || title.trim() === "g2.com"          // DataDome 403 response has title="g2.com"
+  );
+}
 
-# Usage
-new_tab("https://www.g2.com/products/slack/reviews")
-wait_for_load()
-wait(5)
+// Usage
+await new_tab("https://www.g2.com/products/slack/reviews");
+await wait_for_load();
+await wait(5);
 
-if g2_is_datadome_blocked():
-    wait(10)  # give DataDome JS extra time to complete
-    if g2_is_datadome_blocked():
-        screenshot("/tmp/g2_dd_block.png")
-        raise RuntimeError("DataDome challenge did not resolve — check screenshot")
+if (await g2_is_datadome_blocked()) {
+  await wait(10);  // give DataDome JS extra time to complete
+  if (await g2_is_datadome_blocked()) {
+    await screenshot("/tmp/g2_dd_block.png");
+    throw new Error("DataDome challenge did not resolve — check screenshot");
+  }
+}
 ```
 
 ---
@@ -521,10 +517,10 @@ if g2_is_datadome_blocked():
 
 A login modal appears after scrolling past ~5 reviews (triggered by scroll, not on load). Extract all visible review cards **before scrolling**. If you need to scroll:
 
-```python
-def dismiss_g2_login_modal():
-    """Close G2's sign-in overlay. Safe to call if no modal is present."""
-    closed = js("""
+```ts
+/** Close G2's sign-in overlay. Safe to call if no modal is present. */
+async function dismiss_g2_login_modal() {
+    const closed = await js(`
     (function() {
       var selectors = [
         '[data-close-modal], [data-modal-close]',
@@ -543,10 +539,10 @@ def dismiss_g2_login_modal():
       }
       return null;
     })()
-    """)
-    if closed:
-        wait(1)
-    return closed
+    `);
+    if (closed) await wait(1);
+    return closed;
+}
 ```
 
 Call `dismiss_g2_login_modal()` after any scroll action that might trigger the modal.
@@ -555,7 +551,7 @@ Call `dismiss_g2_login_modal()` after any scroll action that might trigger the m
 
 ## Gotchas
 
-- **`http_get` is permanently blocked.** DataDome 5.6.1 intercepts every Python `urllib` / `requests` call. The blocking signal is `X-DataDome: protected` + `X-DD-B: 1` in the response header, response body `rt:'c'` (CAPTCHA). No User-Agent, header set, or cookie replay bypasses it because the `datadome` cookie is bound to the originating TLS fingerprint. Without a real browser's TLS/JA3 fingerprint, the cookie is rejected as `rt:'i'` (invalid).
+- **`http_get` is permanently blocked.** DataDome 5.6.1 intercepts every plain HTTP call (`http_get`, `fetch`). The blocking signal is `X-DataDome: protected` + `X-DD-B: 1` in the response header, response body `rt:'c'` (CAPTCHA). No User-Agent, header set, or cookie replay bypasses it because the `datadome` cookie is bound to the originating TLS fingerprint. Without a real browser's TLS/JA3 fingerprint, the cookie is rejected as `rt:'i'` (invalid).
 
 - **DataDome does NOT block real Chrome via CDP.** The harness connects to Chrome via CDP. Chrome presents a genuine JA3 TLS fingerprint plus browser APIs (canvas, WebGL, Navigator). DataDome's fingerprinting sees a real browser and issues a valid `datadome` cookie silently (no CAPTCHA widget, no user action needed).
 

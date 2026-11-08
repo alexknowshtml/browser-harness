@@ -17,20 +17,17 @@ For bulk enumeration, iterate the catalog list with `start` pagination.
 The default list query (`q=list` implied) returns ALL courses in Coursera's catalog —
 20,659 as of the test date.
 
-```python
-from helpers import http_get
-import json
-
-resp = http_get(
-    "https://api.coursera.org/api/courses.v1"
-    "?fields=name,slug,description,primaryLanguages,workload,"
-    "partnerIds,courseType,instructorIds,domainTypes,photoUrl,certificates"
-    "&limit=100&start=0"
+```ts
+const resp = await http_get(
+  "https://api.coursera.org/api/courses.v1" +
+  "?fields=name,slug,description,primaryLanguages,workload," +
+  "partnerIds,courseType,instructorIds,domainTypes,photoUrl,certificates" +
+  "&limit=100&start=0"
 )
-data = json.loads(resp)
-courses = data["elements"]   # list of dicts
-next_start = data["paging"].get("next")   # e.g. "100", None when exhausted
-total = data["paging"].get("total")       # 20659
+const data = JSON.parse(resp)
+const courses = data.elements   // array of objects
+const next_start = data.paging.next ?? null   // e.g. "100", null when exhausted
+const total = data.paging.total ?? null       // 20659
 ```
 
 ### Response structure (confirmed field names)
@@ -73,23 +70,23 @@ Field notes:
 
 ### Pagination
 
-```python
-def iter_all_courses(fields=None, page_size=100):
-    base_fields = "name,slug,description,primaryLanguages,workload,partnerIds,courseType,domainTypes,photoUrl"
-    if fields:
-        base_fields = fields
-    start = 0
-    while True:
-        url = (
-            f"https://api.coursera.org/api/courses.v1"
-            f"?fields={base_fields}&limit={page_size}&start={start}"
-        )
-        data = json.loads(http_get(url))
-        yield from data["elements"]
-        nxt = data["paging"].get("next")
-        if nxt is None:
-            break
-        start = int(nxt)
+```ts
+async function* iter_all_courses(fields: string | null = null, page_size = 100) {
+  let base_fields = "name,slug,description,primaryLanguages,workload,partnerIds,courseType,domainTypes,photoUrl"
+  if (fields) base_fields = fields
+  let start = 0
+  while (true) {
+    const url =
+      `https://api.coursera.org/api/courses.v1` +
+      `?fields=${base_fields}&limit=${page_size}&start=${start}`
+    const data = JSON.parse(await http_get(url))
+    yield* data.elements
+    const nxt = data.paging.next
+    if (nxt == null) break
+    start = parseInt(nxt)
+  }
+}
+// for await (const c of iter_all_courses()) { ... }
 ```
 
 - `paging.next` is a string offset (e.g. `"100"`), or absent when exhausted.
@@ -102,14 +99,14 @@ def iter_all_courses(fields=None, page_size=100):
 
 422 partners (universities, companies) as of test date.
 
-```python
-resp = http_get(
-    "https://api.coursera.org/api/partners.v1"
-    "?fields=name,squareLogo,description,shortName&limit=50&start=0"
+```ts
+const resp = await http_get(
+  "https://api.coursera.org/api/partners.v1" +
+  "?fields=name,squareLogo,description,shortName&limit=50&start=0"
 )
-data = json.loads(resp)
-partners = data["elements"]
-# paging.next and paging.total follow same structure as courses
+const data = JSON.parse(resp)
+const partners = data.elements
+// paging.next and paging.total follow same structure as courses
 ```
 
 ### Partner record structure
@@ -126,27 +123,27 @@ partners = data["elements"]
 
 ### Partner by ID (with courseIds)
 
-```python
-resp = http_get(
-    "https://api.coursera.org/api/partners.v1"
-    "?ids=6&fields=name,squareLogo,description,shortName,courseIds"
+```ts
+const resp = await http_get(
+  "https://api.coursera.org/api/partners.v1" +
+  "?ids=6&fields=name,squareLogo,description,shortName,courseIds"
 )
-data = json.loads(resp)
-partner = data["elements"][0]
-# partner["courseIds"] is a list of course ID strings (150+ for large universities)
+const data = JSON.parse(resp)
+const partner = data.elements[0]
+// partner.courseIds is an array of course ID strings (150+ for large universities)
 ```
 
 ---
 
 ## 3. Specializations API (http_get — works)
 
-```python
-resp = http_get(
-    "https://api.coursera.org/api/onDemandSpecializations.v1"
-    "?fields=name,slug,description,partnerIds,courseIds,tagline&limit=100&start=0"
+```ts
+const resp = await http_get(
+  "https://api.coursera.org/api/onDemandSpecializations.v1" +
+  "?fields=name,slug,description,partnerIds,courseIds,tagline&limit=100&start=0"
 )
-data = json.loads(resp)
-specs = data["elements"]
+const data = JSON.parse(resp)
+const specs = data.elements
 ```
 
 ### Specialization record structure
@@ -172,14 +169,14 @@ Note: Specializations paging does NOT include `paging.total` — iterate until `
 Only useful for lookups by ID (from course `instructorIds`). The plain list endpoint
 returns many empty records (empty name/bio).
 
-```python
-# Lookup specific instructors by ID
-resp = http_get(
-    "https://api.coursera.org/api/instructors.v1"
-    "?ids=226710&fields=fullName,bio,department,title,photo"
+```ts
+// Lookup specific instructors by ID
+const resp = await http_get(
+  "https://api.coursera.org/api/instructors.v1" +
+  "?ids=226710&fields=fullName,bio,department,title,photo"
 )
-data = json.loads(resp)
-instructor = data["elements"][0]
+const data = JSON.parse(resp)
+const instructor = data.elements[0]
 ```
 
 ### Instructor record structure
@@ -201,14 +198,14 @@ instructor = data["elements"][0]
 
 Fetch multiple courses (or partners/instructors) in one request by passing a comma-separated `ids` list:
 
-```python
-ids = ",".join(["69Bku0KoEeWZtA4u62x6lQ", "hOzhxVNuEfCW8Q55q1kSNQ", "0HiU7Oe4EeWTAQ4yevf_oQ"])
-resp = http_get(
-    f"https://api.coursera.org/api/courses.v1"
-    f"?ids={ids}&fields=name,slug,description,primaryLanguages,workload,partnerIds"
+```ts
+const ids = ["69Bku0KoEeWZtA4u62x6lQ", "hOzhxVNuEfCW8Q55q1kSNQ", "0HiU7Oe4EeWTAQ4yevf_oQ"].join(",")
+const resp = await http_get(
+  `https://api.coursera.org/api/courses.v1` +
+  `?ids=${ids}&fields=name,slug,description,primaryLanguages,workload,partnerIds`
 )
-data = json.loads(resp)
-# data["elements"] has exactly the courses you asked for
+const data = JSON.parse(resp)
+// data.elements has exactly the courses you asked for
 ```
 
 No observed limit on the number of IDs per request in testing (tried up to 3).
@@ -229,11 +226,11 @@ client-side, or use the browser approach below.
 
 ### Browser fallback for keyword search
 
-```python
-new_tab("https://www.coursera.org/search?query=machine+learning")
-wait_for_load()
-wait(3)  # Results load asynchronously via React
-screenshot()
+```ts
+await new_tab("https://www.coursera.org/search?query=machine+learning")
+await wait_for_load()
+await wait(3)  // Results load asynchronously via React
+await screenshot()
 ```
 
 Note: The search results page (`/search?query=...`) is a client-rendered React app. The
@@ -244,31 +241,29 @@ HTML returned by `http_get` does NOT contain course cards — it's a bare shell 
 
 ## 7. Course Detail HTML Page (http_get — works, limited data)
 
-```python
-html = http_get("https://www.coursera.org/learn/machine-learning")
-# html is ~980KB of server-rendered HTML (no NEXT_DATA, no Apollo state)
+```ts
+const html = await http_get("https://www.coursera.org/learn/machine-learning")
+// html is ~980KB of server-rendered HTML (no NEXT_DATA, no Apollo state)
 ```
 
 The course detail page IS served as full HTML (no JS-gate), but contains very
 little machine-readable course data. What you can extract:
 
-```python
-import re, json
+```ts
+// Page title (includes course name)
+const title = html.match(/<title[^>]*>(.*?)<\/title>/)![1]
+// "Supervised Machine Learning: Regression and Classification  | Coursera"
 
-# Page title (includes course name)
-title = re.search(r'<title[^>]*>(.*?)</title>', html).group(1)
-# "Supervised Machine Learning: Regression and Classification  | Coursera"
+// JSON-LD blocks (2 present)
+const jsonld_blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => m[1])
+// Block 0: FAQPage schema (common Q&A about how courses work)
+// Block 1: BreadcrumbList (category path, e.g. Browse > Data Science > Machine Learning)
+const faq   = JSON.parse(jsonld_blocks[0])   // {"@type": "FAQPage", "mainEntity": [...]}
+const crumb = JSON.parse(jsonld_blocks[1])   // {"@type": "BreadcrumbList", "itemListElement": [...]}
 
-# JSON-LD blocks (2 present)
-jsonld_blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
-# Block 0: FAQPage schema (common Q&A about how courses work)
-# Block 1: BreadcrumbList (category path, e.g. Browse > Data Science > Machine Learning)
-faq   = json.loads(jsonld_blocks[0])   # {"@type": "FAQPage", "mainEntity": [...]}
-crumb = json.loads(jsonld_blocks[1])   # {"@type": "BreadcrumbList", "itemListElement": [...]}
-
-# Extract breadcrumb categories
-categories = [item["item"]["name"] for item in crumb["@graph"][0]["itemListElement"]]
-# e.g. ["Browse", "Data Science", "Machine Learning"]
+// Extract breadcrumb categories
+const categories = crumb["@graph"][0].itemListElement.map((item: any) => item.item.name)
+// e.g. ["Browse", "Data Science", "Machine Learning"]
 ```
 
 The HTML does NOT embed: description, rating, instructor names, enrollment count,
@@ -277,13 +272,13 @@ Use the API (`courses.v1?ids=...`) to get those from the slug.
 
 ### Slug-to-ID lookup pattern
 
-```python
-# Get course data from slug (need ID first — get it from catalog or search)
-# Pattern: enumerate catalog, match by slug
-resp = http_get("https://api.coursera.org/api/courses.v1?fields=name,slug,description&limit=100&start=0")
-data = json.loads(resp)
-by_slug = {el["slug"]: el for el in data["elements"]}
-course = by_slug.get("machine-learning")
+```ts
+// Get course data from slug (need ID first — get it from catalog or search)
+// Pattern: enumerate catalog, match by slug
+const resp = await http_get("https://api.coursera.org/api/courses.v1?fields=name,slug,description&limit=100&start=0")
+const data = JSON.parse(resp)
+const by_slug = Object.fromEntries(data.elements.map((el: any) => [el.slug, el]))
+const course = by_slug["machine-learning"]
 ```
 
 ---

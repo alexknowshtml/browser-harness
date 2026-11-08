@@ -4,25 +4,25 @@
 
 ## Do this first
 
-```python
-# Precondition: user is logged in
-if not js('!!document.querySelector("meta[name=user-login]")'):
-    raise RuntimeError("not logged in to GitHub")
+```ts
+// Precondition: user is logged in
+if (!(await js('!!document.querySelector("meta[name=user-login]")')))
+  throw new Error("not logged in to GitHub")
 
-# Star the current repo
-js("""
+// Star the current repo
+await js(`
 (()=>{
   const f = document.querySelector('form[action$="/star"]');
   if (!f) return 'already-starred-or-missing';
   f.submit();
   return 'submitted';
 })()
-""")
-wait(2)
-wait_for_load()
+`)
+await wait(2)
+await wait_for_load()
 
-# Verify — the toggle swaps which form is present
-starred = js('!!document.querySelector(\'form[action$="/unstar"]\')')
+// Verify — the toggle swaps which form is present
+const starred = await js('!!document.querySelector(\'form[action$="/unstar"]\')')
 ```
 
 Same pattern for the reverse (`form[action$="/unstar"]`) and for watch/unwatch (`form[action$="/subscription"]` + a hidden `_method` field, see below).
@@ -40,16 +40,16 @@ The visible Star button looks like `button[aria-label^="Star "]`, but that selec
 
 The subscription form uses a shared endpoint with a `_method` override:
 
-```python
-# Watch (all activity)
-js("""
+```ts
+// Watch (all activity)
+await js(`
 (()=>{
   const f = document.querySelector('form[action$="/subscription"]');
   if (!f) return 'missing';
   f.submit();
   return 'submitted';
 })()
-""")
+`)
 ```
 
 GitHub renders different form attributes (different `_method` hidden input values) depending on the current state. Re-read the form after every toggle rather than caching a reference.

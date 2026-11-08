@@ -50,15 +50,15 @@ Filter IDs seen: `opportunity_owner`, `stage`, `industry`, `segment`, `conversio
 
 POST `https://my.recruitwithatlas.com/graphql` using the tab's own cookies:
 
-```python
-js("""
+```ts
+await js(`
 fetch('/graphql', {
   method: 'POST',
   headers: {'Content-Type': 'application/json', 'apollo-require-preflight': 'true'},
   credentials: 'include',
   body: JSON.stringify({query: 'query { me { id email } }'})
 }).then(r => r.json()).then(j => JSON.stringify(j))
-""")
+`)
 ```
 
 This reuses the session cookies of the current tab — no JWE juggling needed when browsing from inside browser-harness.

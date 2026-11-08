@@ -23,76 +23,72 @@ URL pattern: `https://www.goodreads.com/book/show/{book_id}` or `/{book_id}.{Slu
 
 The slug is optional — numeric ID alone works and redirects cleanly.
 
-```python
-import re, json
-from helpers import http_get
+```ts
+async function parse_book(book_id: number | string) {
+  const html = await http_get(`https://www.goodreads.com/book/show/${book_id}`);
 
-def parse_book(book_id):
-    html = http_get(f"https://www.goodreads.com/book/show/{book_id}")
+  // Parse Apollo state from Next.js page
+  const nd = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  const ap: Record<string, any> = JSON.parse(nd![1]).props.pageProps.apolloState;
 
-    # Parse Apollo state from Next.js page
-    nd = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
-    ap = json.loads(nd.group(1))['props']['pageProps']['apolloState']
+  // The primary Book entity matches the URL's legacy ID
+  const book = Object.values(ap).find(
+    (v: any) => v?.__typename === "Book" && v?.legacyId === Number(book_id));
+  const work = Object.values(ap).find((v: any) => v?.__typename === "Work") ?? {};
+  const author_ref = book.primaryContributorEdge.node.__ref;
+  const author = ap[author_ref] ?? {};
 
-    # The primary Book entity matches the URL's legacy ID
-    book = next(v for v in ap.values()
-                if v.get('__typename') == 'Book' and v.get('legacyId') == int(book_id))
-    work = next((v for v in ap.values() if v.get('__typename') == 'Work'), {})
-    author_ref = book['primaryContributorEdge']['node']['__ref']
-    author = ap.get(author_ref, {})
+  const stats = work.stats ?? {};
+  const work_details = work.details ?? {};
+  const book_details = book.details ?? {};
 
-    stats = work.get('stats', {})
-    work_details = work.get('details', {})
-    book_details = book.get('details', {})
+  return {
+    title:            book.title,
+    title_complete:   book.titleComplete,
+    book_id:          book.legacyId,
+    url:              book.webUrl,
+    cover_url:        book.imageUrl,
+    // Strip HTML tags from description
+    description:      (book['description({"stripped":true})'] ?? book.description ?? "")
+                        .replace(/<[^>]+>/g, "").trim(),
+    genres:           (book.bookGenres ?? []).map((g: any) => g.genre.name),
+    series:           (book.bookSeries ?? []).map((s: any) => ({ name: s.series.title, position: s.userPosition ?? null })),
+    // Author
+    author_name:      author.name ?? null,
+    author_url:       author.webUrl ?? null,
+    // Edition details
+    format:           book_details.format ?? null,
+    num_pages:        book_details.numPages ?? null,
+    publisher:        book_details.publisher ?? null,
+    language:         (book_details.language || {}).name ?? null,
+    isbn:             book_details.isbn ?? null,
+    isbn13:           book_details.isbn13 ?? null,
+    pub_timestamp_ms: book_details.publicationTime ?? null,
+    // Ratings (from Work, not Book)
+    avg_rating:       stats.averageRating ?? null,
+    ratings_count:    stats.ratingsCount ?? null,
+    text_reviews:     stats.textReviewsCount ?? null,
+    // ratings_dist is list of counts for [1-star, 2-star, 3-star, 4-star, 5-star]
+    ratings_dist:     stats.ratingsCountDist ?? null,
+    // Awards
+    awards:           (work_details.awardsWon ?? []).map((a: any) => a.name + (a.category ? " — " + a.category : "")),
+  };
+}
 
-    return {
-        'title':            book['title'],
-        'title_complete':   book['titleComplete'],
-        'book_id':          book['legacyId'],
-        'url':              book['webUrl'],
-        'cover_url':        book['imageUrl'],
-        # Strip HTML tags from description
-        'description':      re.sub(r'<[^>]+>', '', book.get('description({"stripped":true})',
-                                   book.get('description', ''))).strip(),
-        'genres':           [g['genre']['name'] for g in book.get('bookGenres', [])],
-        'series':           [{'name': s['series']['title'], 'position': s.get('userPosition')}
-                             for s in book.get('bookSeries', [])],
-        # Author
-        'author_name':      author.get('name'),
-        'author_url':       author.get('webUrl'),
-        # Edition details
-        'format':           book_details.get('format'),
-        'num_pages':        book_details.get('numPages'),
-        'publisher':        book_details.get('publisher'),
-        'language':         (book_details.get('language') or {}).get('name'),
-        'isbn':             book_details.get('isbn'),
-        'isbn13':           book_details.get('isbn13'),
-        'pub_timestamp_ms': book_details.get('publicationTime'),
-        # Ratings (from Work, not Book)
-        'avg_rating':       stats.get('averageRating'),
-        'ratings_count':    stats.get('ratingsCount'),
-        'text_reviews':     stats.get('textReviewsCount'),
-        # ratings_dist is list of counts for [1-star, 2-star, 3-star, 4-star, 5-star]
-        'ratings_dist':     stats.get('ratingsCountDist'),
-        # Awards
-        'awards':           [a['name'] + (' — ' + a['category'] if a.get('category') else '')
-                             for a in work_details.get('awardsWon', [])],
-    }
-
-# Example
-book = parse_book(149267)  # The Stand by Stephen King
-# book['title']        => "The Stand"
-# book['avg_rating']   => 4.35
-# book['ratings_count']=> 845591
-# book['genres']       => ["Horror", "Fiction", "Fantasy", ...]
-# book['awards']       => ["Locus Award — Best SF Novel", ...]
+// Example
+const book = await parse_book(149267);  // The Stand by Stephen King
+// book.title         => "The Stand"
+// book.avg_rating    => 4.35
+// book.ratings_count => 845591
+// book.genres        => ["Horror", "Fiction", "Fantasy", ...]
+// book.awards        => ["Locus Award — Best SF Novel", ...]
 ```
 
 **Field notes:**
-- `book['legacyId']` is the integer in the URL (e.g. `149267`). Use it to match the correct entity — the `apolloState` often contains 2-3 Book entries for different editions.
+- `book.legacyId` is the integer in the URL (e.g. `149267`). Use it to match the correct entity — the `apolloState` often contains 2-3 Book entries for different editions.
 - Ratings and awards live in the `Work` entity, not `Book`. The `Work` is always `__typename == 'Work'`.
 - `description` comes in two forms: `description` (HTML) and `description({"stripped":true})` (plain text). Prefer the stripped version.
-- `pub_timestamp_ms` is a Unix timestamp in **milliseconds**. Convert: `datetime.fromtimestamp(ts/1000)`.
+- `pub_timestamp_ms` is a Unix timestamp in **milliseconds**. Convert: `new Date(ts)`.
 - `isbn` / `isbn13` are often `null` on older editions — the JSON-LD path (below) is no more reliable.
 
 ---
@@ -101,32 +97,29 @@ book = parse_book(149267)  # The Stand by Stephen King
 
 Use when you only need title, author, rating, page count, and awards. ~3× less parsing code.
 
-```python
-import re, json
-from helpers import http_get
+```ts
+async function parse_book_fast(book_id: number | string) {
+  const html = await http_get(`https://www.goodreads.com/book/show/${book_id}`);
+  const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  if (!blocks.length) return null;
+  const ld = JSON.parse(blocks[0]);
+  return {
+    title:         ld.name ?? null,
+    author:        ld.author ? ld.author[0].name : null,
+    avg_rating:    ld.aggregateRating?.ratingValue ?? null,
+    ratings_count: ld.aggregateRating?.ratingCount ?? null,
+    review_count:  ld.aggregateRating?.reviewCount ?? null,
+    num_pages:     ld.numberOfPages ?? null,
+    isbn:          ld.isbn ?? null,
+    cover_url:     ld.image ?? null,
+    awards:        ld.awards ?? null,   // single string, comma-separated
+    format:        ld.bookFormat ?? null,
+  };
+}
 
-def parse_book_fast(book_id):
-    html = http_get(f"https://www.goodreads.com/book/show/{book_id}")
-    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
-    if not blocks:
-        return None
-    ld = json.loads(blocks[0])
-    return {
-        'title':        ld.get('name'),
-        'author':       ld['author'][0]['name'] if ld.get('author') else None,
-        'avg_rating':   ld.get('aggregateRating', {}).get('ratingValue'),
-        'ratings_count':ld.get('aggregateRating', {}).get('ratingCount'),
-        'review_count': ld.get('aggregateRating', {}).get('reviewCount'),
-        'num_pages':    ld.get('numberOfPages'),
-        'isbn':         ld.get('isbn'),
-        'cover_url':    ld.get('image'),
-        'awards':       ld.get('awards'),   # single string, comma-separated
-        'format':       ld.get('bookFormat'),
-    }
-
-book = parse_book_fast(149267)
-# book['avg_rating']   => 4.35
-# book['ratings_count']=> 845591
+const book = await parse_book_fast(149267);
+// book.avg_rating    => 4.35
+// book.ratings_count => 845591
 ```
 
 **JSON-LD does NOT include:** description, genres, series membership, per-star rating distribution, publisher, language.
@@ -140,49 +133,47 @@ URL: `https://www.goodreads.com/search?q={query}&search_type=books&page={n}`
 
 Search uses server-rendered HTML with schema.org microdata `<tr>` rows. No `__NEXT_DATA__`.
 
-```python
-import re, json
-from helpers import http_get
+```ts
+const quote_plus = (s: string) => encodeURIComponent(s).replace(/%20/g, "+");
 
-def search_books(query, page=1):
-    from urllib.parse import quote_plus
-    url = f"https://www.goodreads.com/search?q={quote_plus(query)}&search_type=books&page={page}"
-    html = http_get(url)
+async function search_books(query: string, page = 1) {
+  const url = `https://www.goodreads.com/search?q=${quote_plus(query)}&search_type=books&page=${page}`;
+  const html = await http_get(url);
 
-    rows = re.findall(
-        r'<tr itemscope itemtype="http://schema.org/Book">(.*?)</tr>',
-        html, re.DOTALL
-    )
+  const rows = [...html.matchAll(
+    /<tr itemscope itemtype="http:\/\/schema.org\/Book">([\s\S]*?)<\/tr>/g
+  )].map((m) => m[1]);
 
-    results = []
-    for row in rows:
-        bid    = re.search(r'<div id="(\d+)" class="u-anchorTarget">', row)
-        title  = re.search(r"itemprop='name'[^>]*>([^<]+)</span>", row)
-        author = re.search(r'class="authorName"[^>]*><span[^>]*>([^<]+)</span>', row)
-        avg    = re.search(r'(\d+\.\d+)\s*avg rating', row)
-        cnt    = re.search(r'(\d[\d,]*)\s*rating', row)
-        cover  = re.search(r'img alt="[^"]*" class="bookCover"[^>]*src="([^"]+)"', row)
-        if not (bid and title):
-            continue
-        results.append({
-            'book_id':      bid.group(1),
-            'title':        title.group(1).strip(),
-            'author':       author.group(1).strip() if author else None,
-            'avg_rating':   float(avg.group(1)) if avg else None,
-            'ratings_count':cnt.group(1).replace(',', '') if cnt else None,
-            'cover_url':    cover.group(1) if cover else None,
-            'url':          f"https://www.goodreads.com/book/show/{bid.group(1)}",
-        })
+  const results: any[] = [];
+  for (const row of rows) {
+    const bid    = row.match(/<div id="(\d+)" class="u-anchorTarget">/);
+    const title  = row.match(/itemprop='name'[^>]*>([^<]+)<\/span>/);
+    const author = row.match(/class="authorName"[^>]*><span[^>]*>([^<]+)<\/span>/);
+    const avg    = row.match(/(\d+\.\d+)\s*avg rating/);
+    const cnt    = row.match(/(\d[\d,]*)\s*rating/);
+    const cover  = row.match(/img alt="[^"]*" class="bookCover"[^>]*src="([^"]+)"/);
+    if (!(bid && title)) continue;
+    results.push({
+      book_id:       bid[1],
+      title:         title[1].trim(),
+      author:        author ? author[1].trim() : null,
+      avg_rating:    avg ? parseFloat(avg[1]) : null,
+      ratings_count: cnt ? cnt[1].replaceAll(",", "") : null,
+      cover_url:     cover ? cover[1] : null,
+      url:           `https://www.goodreads.com/book/show/${bid[1]}`,
+    });
+  }
 
-    total_m = re.search(r'([\d,]+)\s+results', html)
-    total   = int(total_m.group(1).replace(',', '')) if total_m else None
+  const total_m = html.match(/([\d,]+)\s+results/);
+  const total   = total_m ? parseInt(total_m[1].replaceAll(",", "")) : null;
 
-    return {'total': total, 'page': page, 'results': results}
+  return { total, page, results };
+}
 
-# Example
-r = search_books("dune")
-# r['total']   => 101026
-# r['results'] => [{'book_id':'44767458', 'title':'Dune (Dune, #1)', 'avg_rating':4.29, ...}, ...]
+// Example
+const r = await search_books("dune");
+// r.total   => 101026
+// r.results => [{book_id: '44767458', title: 'Dune (Dune, #1)', avg_rating: 4.29, ...}, ...]
 ```
 
 **Field notes:**
@@ -201,59 +192,55 @@ URL: `https://www.goodreads.com/author/show/{author_id}.{Slug}`
 Author pages are **not** Next.js — they use classic server-rendered HTML with OG meta tags and microdata.
 The author ID and slug can be obtained from a book's `author_url` field.
 
-```python
-import re, json
-from helpers import http_get
+```ts
+async function parse_author(author_id_and_slug: string) {
+  // author_id_and_slug e.g. "58.Frank_Patrick_Herbert"
+  const html = await http_get(`https://www.goodreads.com/author/show/${author_id_and_slug}`);
 
-def parse_author(author_id_and_slug):
-    # author_id_and_slug e.g. "58.Frank_Patrick_Herbert"
-    html = http_get(f"https://www.goodreads.com/author/show/{author_id_and_slug}")
+  // Name and basic info from OG/meta tags
+  const name    = html.match(/<meta content='([^']+)' property='og:title'>/);
+  const img     = html.match(/<meta content='([^']+)' property='og:image'>/);
+  const website = html.match(/Website\s*<\/div>\s*<div[^>]*>\s*<a[^>]*href="([^"]+)"/);
 
-    # Name and basic info from OG/meta tags
-    name    = re.search(r"<meta content='([^']+)' property='og:title'>", html)
-    img     = re.search(r"<meta content='([^']+)' property='og:image'>", html)
-    website = re.search(r"Website\s*</div>\s*<div[^>]*>\s*<a[^>]*href=\"([^\"]+)\"", html)
+  // Full biography from hidden span (shown/hidden by "...more" toggle in browser)
+  const bio_span = html.match(/<span id="freeText(?:author|long)\d+"[^>]*>([\s\S]*?)<\/span>/);
+  const bio = bio_span ? bio_span[1].replace(/<[^>]+>/g, "").trim() : null;
 
-    # Full biography from hidden span (shown/hidden by "...more" toggle in browser)
-    bio_span = re.search(
-        r'<span id="freeText(?:author|long)\d+"[^>]*>(.*?)</span>',
-        html, re.DOTALL
-    )
-    bio = re.sub(r'<[^>]+>', '', bio_span.group(1)).strip() if bio_span else None
-
-    # Top books listed on the page (10 rows, same microdata format as search)
-    rows = re.findall(
-        r'<tr itemscope itemtype="http://schema.org/Book">(.*?)</tr>',
-        html, re.DOTALL
-    )
-    books = []
-    for row in rows:
-        bid   = re.search(r'<div id="(\d+)" class="u-anchorTarget">', row)
-        title = re.search(r"itemprop='name'[^>]*>([^<]+)</span>", row)
-        avg   = re.search(r'(\d+\.\d+)\s*avg rating', row)
-        cnt   = re.search(r'(\d[\d,]*)\s*rating', row)
-        if bid and title:
-            books.append({
-                'book_id':      bid.group(1),
-                'title':        title.group(1).strip(),
-                'avg_rating':   float(avg.group(1)) if avg else None,
-                'ratings_count':cnt.group(1).replace(',', '') if cnt else None,
-                'url':          f"https://www.goodreads.com/book/show/{bid.group(1)}",
-            })
-
-    return {
-        'name':         name.group(1) if name else None,
-        'profile_image':img.group(1) if img else None,
-        'bio':          bio,
-        'website':      website.group(1) if website else None,
-        'top_books':    books,
+  // Top books listed on the page (10 rows, same microdata format as search)
+  const rows = [...html.matchAll(
+    /<tr itemscope itemtype="http:\/\/schema.org\/Book">([\s\S]*?)<\/tr>/g
+  )].map((m) => m[1]);
+  const books: any[] = [];
+  for (const row of rows) {
+    const bid   = row.match(/<div id="(\d+)" class="u-anchorTarget">/);
+    const title = row.match(/itemprop='name'[^>]*>([^<]+)<\/span>/);
+    const avg   = row.match(/(\d+\.\d+)\s*avg rating/);
+    const cnt   = row.match(/(\d[\d,]*)\s*rating/);
+    if (bid && title) {
+      books.push({
+        book_id:       bid[1],
+        title:         title[1].trim(),
+        avg_rating:    avg ? parseFloat(avg[1]) : null,
+        ratings_count: cnt ? cnt[1].replaceAll(",", "") : null,
+        url:           `https://www.goodreads.com/book/show/${bid[1]}`,
+      });
     }
+  }
 
-# Example
-author = parse_author("58.Frank_Patrick_Herbert")
-# author['name']    => "Frank Patrick Herbert"
-# author['bio']     => "Franklin Patrick Herbert Jr. was an American science fiction..."
-# len(author['top_books']) => 10
+  return {
+    name:          name ? name[1] : null,
+    profile_image: img ? img[1] : null,
+    bio,
+    website:       website ? website[1] : null,
+    top_books:     books,
+  };
+}
+
+// Example
+const author = await parse_author("58.Frank_Patrick_Herbert");
+// author.name    => "Frank Patrick Herbert"
+// author.bio     => "Franklin Patrick Herbert Jr. was an American science fiction..."
+// author.top_books.length => 10
 ```
 
 **Field notes:**
@@ -272,46 +259,43 @@ URL: `https://www.goodreads.com/list/show/{list_id}.{Slug}?page={n}`
 
 Returns 100 books per page with rank numbers.
 
-```python
-import re, json
-from helpers import http_get
+```ts
+async function parse_list(list_id_and_slug: string, page = 1) {
+  const url = `https://www.goodreads.com/list/show/${list_id_and_slug}?page=${page}`;
+  const html = await http_get(url);
 
-def parse_list(list_id_and_slug, page=1):
-    url = f"https://www.goodreads.com/list/show/{list_id_and_slug}?page={page}"
-    html = http_get(url)
+  const rows = [...html.matchAll(
+    /<tr itemscope itemtype="http:\/\/schema.org\/Book">([\s\S]*?)<\/tr>/g
+  )].map((m) => m[1]);
 
-    rows = re.findall(
-        r'<tr itemscope itemtype="http://schema.org/Book">(.*?)</tr>',
-        html, re.DOTALL
-    )
+  const results: any[] = [];
+  for (const row of rows) {
+    const rank   = row.match(/<td[^>]*class="number"[^>]*>(\d+)<\/td>/);
+    const bid    = row.match(/<div id="(\d+)" class="u-anchorTarget">/);
+    const title  = row.match(/itemprop='name'[^>]*>([^<]+)<\/span>/);
+    const author = row.match(/class="authorName"[^>]*><span[^>]*>([^<]+)<\/span>/);
+    const avg    = row.match(/(\d+\.\d+)\s*avg rating/);
+    const cnt    = row.match(/(\d[\d,]*)\s*rating/);
+    if (!(bid && title)) continue;
+    results.push({
+      rank:          rank ? parseInt(rank[1]) : null,
+      book_id:       bid[1],
+      title:         title[1].trim(),
+      author:        author ? author[1].trim() : null,
+      avg_rating:    avg ? parseFloat(avg[1]) : null,
+      ratings_count: cnt ? cnt[1].replaceAll(",", "") : null,
+      url:           `https://www.goodreads.com/book/show/${bid[1]}`,
+    });
+  }
 
-    results = []
-    for row in rows:
-        rank   = re.search(r'<td[^>]*class="number"[^>]*>(\d+)</td>', row)
-        bid    = re.search(r'<div id="(\d+)" class="u-anchorTarget">', row)
-        title  = re.search(r"itemprop='name'[^>]*>([^<]+)</span>", row)
-        author = re.search(r'class="authorName"[^>]*><span[^>]*>([^<]+)</span>', row)
-        avg    = re.search(r'(\d+\.\d+)\s*avg rating', row)
-        cnt    = re.search(r'(\d[\d,]*)\s*rating', row)
-        if not (bid and title):
-            continue
-        results.append({
-            'rank':         int(rank.group(1)) if rank else None,
-            'book_id':      bid.group(1),
-            'title':        title.group(1).strip(),
-            'author':       author.group(1).strip() if author else None,
-            'avg_rating':   float(avg.group(1)) if avg else None,
-            'ratings_count':cnt.group(1).replace(',', '') if cnt else None,
-            'url':          f"https://www.goodreads.com/book/show/{bid.group(1)}",
-        })
+  return { page, results };
+}
 
-    return {'page': page, 'results': results}
-
-# Example
-lst = parse_list("1.Best_Books_Ever")
-# lst['results'][0] => {'rank': 1, 'book_id': '2767052',
-#                       'title': 'The Hunger Games (The Hunger Games, #1)',
-#                       'author': 'Suzanne Collins', 'avg_rating': 4.35, ...}
+// Example
+const lst = await parse_list("1.Best_Books_Ever");
+// lst.results[0] => {rank: 1, book_id: '2767052',
+//                    title: 'The Hunger Games (The Hunger Games, #1)',
+//                    author: 'Suzanne Collins', avg_rating: 4.35, ...}
 ```
 
 **Field notes:**
@@ -329,107 +313,109 @@ Open Library's ratings are from its own user base (~400 ratings vs. Goodreads' 8
 
 ### Search
 
-```python
-import json
-from urllib.parse import quote_plus
-from helpers import http_get
+```ts
+const quote_plus = (s: string) => encodeURIComponent(s).replace(/%20/g, "+");
 
-def ol_search(query, limit=10):
-    url = f"https://openlibrary.org/search.json?q={quote_plus(query)}&limit={limit}"
-    data = json.loads(http_get(url))
-    results = []
-    for doc in data.get('docs', []):
-        cover_id = doc.get('cover_i')
-        results.append({
-            'ol_key':           doc['key'],           # e.g. "/works/OL893415W"
-            'title':            doc.get('title'),
-            'author':           (doc.get('author_name') or [''])[0],
-            'author_key':       (doc.get('author_key') or [''])[0],
-            'first_pub_year':   doc.get('first_publish_year'),
-            'edition_count':    doc.get('edition_count'),
-            'series':           doc.get('series_name'),
-            'cover_url':        f"https://covers.openlibrary.org/b/id/{cover_id}-M.jpg" if cover_id else None,
-        })
-    return {'total': data.get('numFound'), 'results': results}
+async function ol_search(query: string, limit = 10) {
+  const url = `https://openlibrary.org/search.json?q=${quote_plus(query)}&limit=${limit}`;
+  const data = JSON.parse(await http_get(url));
+  const results = (data.docs ?? []).map((doc: any) => {
+    const cover_id = doc.cover_i;
+    return {
+      ol_key:         doc.key,           // e.g. "/works/OL893415W"
+      title:          doc.title ?? null,
+      author:         (doc.author_name || [""])[0],
+      author_key:     (doc.author_key || [""])[0],
+      first_pub_year: doc.first_publish_year ?? null,
+      edition_count:  doc.edition_count ?? null,
+      series:         doc.series_name ?? null,
+      cover_url:      cover_id ? `https://covers.openlibrary.org/b/id/${cover_id}-M.jpg` : null,
+    };
+  });
+  return { total: data.numFound ?? null, results };
+}
 
-r = ol_search("dune frank herbert", limit=5)
-# r['results'][0]['ol_key']  => "/works/OL893415W"
-# r['results'][0]['title']   => "Dune"
+const r = await ol_search("dune frank herbert", 5);
+// r.results[0].ol_key  => "/works/OL893415W"
+// r.results[0].title   => "Dune"
 ```
 
 ### Work (book details)
 
-```python
-def ol_work(ol_key):
-    # ol_key like "/works/OL893415W" or just "OL893415W"
-    key = ol_key if ol_key.startswith('/') else f'/works/{ol_key}'
-    data = json.loads(http_get(f"https://openlibrary.org{key}.json"))
-    desc = data.get('description', '')
-    if isinstance(desc, dict):
-        desc = desc.get('value', '')
-    return {
-        'title':    data.get('title'),
-        'subjects': data.get('subjects', []),
-        'series':   data.get('series', []),
-        'description': desc,
-        'covers':   data.get('covers', []),
-        'links':    data.get('links', []),
-    }
+```ts
+async function ol_work(ol_key: string) {
+  // ol_key like "/works/OL893415W" or just "OL893415W"
+  const key = ol_key.startsWith("/") ? ol_key : `/works/${ol_key}`;
+  const data = JSON.parse(await http_get(`https://openlibrary.org${key}.json`));
+  let desc = data.description ?? "";
+  if (typeof desc === "object") desc = desc.value ?? "";
+  return {
+    title:       data.title ?? null,
+    subjects:    data.subjects ?? [],
+    series:      data.series ?? [],
+    description: desc,
+    covers:      data.covers ?? [],
+    links:       data.links ?? [],
+  };
+}
 
-work = ol_work("OL893415W")
-# work['title']    => "Dune"
-# work['subjects'] => ["Dune (Imaginary place)", "Fiction", ...]
+const work = await ol_work("OL893415W");
+// work.title    => "Dune"
+// work.subjects => ["Dune (Imaginary place)", "Fiction", ...]
 ```
 
 ### Ratings for a work
 
-```python
-def ol_ratings(ol_key):
-    key = ol_key if ol_key.startswith('/') else f'/works/{ol_key}'
-    data = json.loads(http_get(f"https://openlibrary.org{key}/ratings.json"))
-    return data.get('summary', {})
+```ts
+async function ol_ratings(ol_key: string) {
+  const key = ol_key.startsWith("/") ? ol_key : `/works/${ol_key}`;
+  const data = JSON.parse(await http_get(`https://openlibrary.org${key}/ratings.json`));
+  return data.summary ?? {};
+}
 
-# {'average': 4.30, 'count': 414, 'sortable': 4.21}
+// {average: 4.30, count: 414, sortable: 4.21}
 ```
 
 ### Author
 
-```python
-def ol_author(author_key):
-    # author_key like "OL79034A"
-    data = json.loads(http_get(f"https://openlibrary.org/authors/{author_key}.json"))
-    bio = data.get('bio', '')
-    if isinstance(bio, dict):
-        bio = bio.get('value', '')
-    return {
-        'name':        data.get('name'),
-        'birth_date':  data.get('birth_date'),
-        'death_date':  data.get('death_date'),
-        'bio':         bio,
-        'ol_key':      data.get('key'),
-    }
+```ts
+async function ol_author(author_key: string) {
+  // author_key like "OL79034A"
+  const data = JSON.parse(await http_get(`https://openlibrary.org/authors/${author_key}.json`));
+  let bio = data.bio ?? "";
+  if (typeof bio === "object") bio = bio.value ?? "";
+  return {
+    name:       data.name ?? null,
+    birth_date: data.birth_date ?? null,
+    death_date: data.death_date ?? null,
+    bio,
+    ol_key:     data.key ?? null,
+  };
+}
 
-author = ol_author("OL79034A")
-# author['name']       => "Frank Herbert"
-# author['birth_date'] => "8 October 1920"
-# author['death_date'] => "11 February 1986"
+const author = await ol_author("OL79034A");
+// author.name       => "Frank Herbert"
+// author.birth_date => "8 October 1920"
+// author.death_date => "11 February 1986"
 ```
 
 ---
 
 ## Combining Goodreads + Open Library
 
-```python
-# Get full book data: Goodreads for ratings/genres/description, OL for ISBNs/edition details
-def get_book_full(goodreads_book_id, ol_work_key=None):
-    gr = parse_book(goodreads_book_id)
-    result = dict(gr)
-    if ol_work_key:
-        ol = ol_work(ol_work_key)
-        result['ol_subjects']    = ol['subjects']
-        result['ol_description'] = ol['description']
-        result['ol_covers']      = ol['covers']
-    return result
+```ts
+// Get full book data: Goodreads for ratings/genres/description, OL for ISBNs/edition details
+async function get_book_full(goodreads_book_id: number | string, ol_work_key: string | null = null) {
+  const gr = await parse_book(goodreads_book_id);
+  const result: Record<string, any> = { ...gr };
+  if (ol_work_key) {
+    const ol = await ol_work(ol_work_key);
+    result.ol_subjects    = ol.subjects;
+    result.ol_description = ol.description;
+    result.ol_covers      = ol.covers;
+  }
+  return result;
+}
 ```
 
 ---
@@ -438,11 +424,11 @@ def get_book_full(goodreads_book_id, ol_work_key=None):
 
 - **Goodreads API is gone**: The official API was shut down in December 2020. All data must come from HTML scraping or the unofficial paths documented here.
 
-- **Book ID 5107 redirects**: The URL `goodreads.com/book/show/5107.The_Stand` actually resolves to *The Catcher in the Rye* (ID 5107). The Stand is ID `149267`. Always verify `book['legacyId']` matches the URL ID.
+- **Book ID 5107 redirects**: The URL `goodreads.com/book/show/5107.The_Stand` actually resolves to *The Catcher in the Rye* (ID 5107). The Stand is ID `149267`. Always verify `book.legacyId` matches the URL ID.
 
 - **Author page ID mismatch**: Author ID `10538` in the URL resolves to Carl Sagan, not Frank Herbert (ID `58`). Always obtain author IDs from the `author_url` field inside a book's data rather than guessing.
 
-- **Two Book entities in `apolloState`**: The `apolloState` contains multiple `Book:` entries — one is a stub (only has `legacyId` and `webUrl`), and one is full. Filter by `legacyId == int(book_id)` AND check that the entry has more than 3 fields.
+- **Two Book entities in `apolloState`**: The `apolloState` contains multiple `Book:` entries — one is a stub (only has `legacyId` and `webUrl`), and one is full. Filter by `legacyId === Number(book_id)` AND check that the entry has more than 3 fields.
 
 - **Ratings are on `Work`, not `Book`**: `avg_rating`, `ratingsCount`, and `ratingsCountDist` are in the `Work` entity's `stats` key. The `Book` entity has no rating fields.
 
@@ -450,12 +436,12 @@ def get_book_full(goodreads_book_id, ol_work_key=None):
 
 - **Search has no `__NEXT_DATA__`**: Search result pages (`/search`) are classic server-rendered HTML. JSON-LD is absent. Use the `<tr itemscope itemtype="http://schema.org/Book">` microdata rows.
 
-- **`ratings_count` regex order matters**: The pattern `r'(\d[\d,]*)\s*rating'` always matches the book's aggregate rating count first in each search row — this is reliable. Do not use `minirating` span text as it contains nested HTML.
+- **`ratings_count` regex order matters**: The pattern `/(\d[\d,]*)\s*rating/` always matches the book's aggregate rating count first in each search row — this is reliable. Do not use `minirating` span text as it contains nested HTML.
 
-- **Open Library cover URLs return binary JPEG**: `http_get()` will raise a `UnicodeDecodeError` on cover image URLs. Use `urllib.request.urlopen()` directly and read bytes, or just store the URL string without fetching.
+- **Open Library cover URLs return binary JPEG**: `http_get()` decodes the body as UTF-8 text, which garbles image bytes. Use `fetch()` directly and read `arrayBuffer()`, or just store the URL string without fetching.
 
 - **Open Library ratings are sparse**: OL has ~400 community ratings for Dune vs. Goodreads' 1.6M. Use OL ratings only as a last resort.
 
-- **Search page `&mdash;` entity**: The raw HTML uses `&mdash;` (not `—`) between rating value and count in search and author pages. The regex patterns above match the decoded text because Python's `re` operates on the decoded string after `http_get()` decodes UTF-8.
+- **Search page `&mdash;` entity**: The raw HTML uses `&mdash;` (not `—`) between rating value and count in search and author pages. The regex patterns above match the decoded text because the regex runs on the decoded string after `http_get()` decodes UTF-8.
 
 - **Book slug is optional**: `goodreads.com/book/show/44767458` (no slug) works identically to `goodreads.com/book/show/44767458-dune`. Redirects are transparent.

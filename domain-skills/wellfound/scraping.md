@@ -56,25 +56,27 @@ Implications:
 
 ## Do this first: open in new tab, wait for DataDome to resolve
 
-```python
-new_tab("https://wellfound.com/company/stripe")
-wait_for_load()
-wait(5)   # DataDome JS fingerprinting runs ~2-4s after readyState=complete
+```ts
+await new_tab("https://wellfound.com/company/stripe");
+await wait_for_load();
+await wait(5);   // DataDome JS fingerprinting runs ~2-4s after readyState=complete
 ```
 
 Verify you are past the DataDome challenge before extracting:
 
-```python
-title = js("document.title")
-url = page_info()["url"]
+```ts
+let title = await js("document.title");
+const url = (await page_info()).url;
 
-if "wellfound.com" not in url or not title or "Just a moment" in title:
-    # DataDome or CF challenge did not resolve — wait longer
-    wait(8)
-    title = js("document.title")
-    if "Just a moment" in title or not title:
-        screenshot("/tmp/wellfound_block.png")
-        raise RuntimeError("DataDome/CF challenge did not resolve — see screenshot")
+if (!url.includes("wellfound.com") || !title || title.includes("Just a moment")) {
+  // DataDome or CF challenge did not resolve — wait longer
+  await wait(8);
+  title = await js("document.title");
+  if (!title || title.includes("Just a moment")) {
+    await screenshot("/tmp/wellfound_block.png");
+    throw new Error("DataDome/CF challenge did not resolve — see screenshot");
+  }
+}
 ```
 
 DataDome resolves **silently** in a real Chrome session via CDP — no user interaction required.
@@ -103,16 +105,14 @@ Wellfound enforces these with login walls or redirects for most filtered job sea
 
 Navigate to the company page and extract structured data. Most fields are visible without login.
 
-```python
-import json
+```ts
+await new_tab("https://wellfound.com/company/stripe");
+await wait_for_load();
+await wait(5);
 
-new_tab("https://wellfound.com/company/stripe")
-wait_for_load()
-wait(5)
-
-# Check for Apollo state (Rails + React app, not Next.js)
-# Wellfound embeds data in window.gon or inline script tags
-apollo_raw = js("""
+// Check for Apollo state (Rails + React app, not Next.js)
+// Wellfound embeds data in window.gon or inline script tags
+const apollo_raw = await js(`
 (function() {
   // Try window.__APOLLO_STATE__ (Apollo Client cache)
   if (window.__APOLLO_STATE__) return JSON.stringify(window.__APOLLO_STATE__);
@@ -128,34 +128,38 @@ apollo_raw = js("""
   }
   return null;
 })()
-""")
+`);
 
-if apollo_raw:
-    try:
-        data = json.loads(apollo_raw)
-        # Apollo State: look for Startup:{id} keys
-        for key, val in data.items():
-            if key.startswith("Startup:") and isinstance(val, dict):
-                print("Company:", val.get("name"))
-                print("Description:", val.get("description") or val.get("highConcept"))
-                print("Team size:", val.get("teamSize"))
-                print("Total raised:", val.get("totalRaised"))
-                print("Hiring:", val.get("hiring"))
-        print(json.dumps(data, indent=2)[:3000])
-    except json.JSONDecodeError:
-        # Raw script tag — parse key fields with regex
-        import re
-        name = re.search(r'"name"\s*:\s*"([^"]+)"', apollo_raw)
-        desc = re.search(r'"description"\s*:\s*"([^"]+)"', apollo_raw)
-        print("Name:", name.group(1) if name else "not found")
-        print("Desc:", desc.group(1) if desc else "not found")
+if (apollo_raw) {
+  try {
+    const data = JSON.parse(apollo_raw);
+    // Apollo State: look for Startup:{id} keys
+    for (const [key, val] of Object.entries<any>(data)) {
+      if (key.startsWith("Startup:") && val && typeof val === "object") {
+        console.log("Company:", val.name);
+        console.log("Description:", val.description || val.highConcept);
+        console.log("Team size:", val.teamSize);
+        console.log("Total raised:", val.totalRaised);
+        console.log("Hiring:", val.hiring);
+      }
+    }
+    console.log(JSON.stringify(data, null, 2).slice(0, 3000));
+  } catch {
+    // Raw script tag (not valid JSON) — parse key fields with regex
+    const name = apollo_raw.match(/"name"\s*:\s*"([^"]+)"/);
+    const desc = apollo_raw.match(/"description"\s*:\s*"([^"]+)"/);
+    console.log("Name:", name ? name[1] : "not found");
+    console.log("Desc:", desc ? desc[1] : "not found");
+  }
+}
 ```
 
 If the structured data path fails, fall back to DOM extraction:
 
-```python
-# DOM extraction — company profile page
-profile = js("""
+```ts
+// DOM extraction — company profile page
+// String.raw keeps the regex backslashes (\d, \s, \b) intact for the page
+const profile = await js(String.raw`
 (function() {
   // Company name — first h1 on the page
   var nameEl = document.querySelector('h1');
@@ -197,25 +201,23 @@ profile = js("""
     locations: locationLinks.slice(0, 5),
   });
 })()
-""")
+`);
 
-data = json.loads(profile)
-print(json.dumps(data, indent=2))
+const data = JSON.parse(profile);
+console.log(JSON.stringify(data, null, 2));
 ```
 
 ---
 
 ## Workflow 2: Company jobs listing
 
-```python
-import json
+```ts
+const company_slug = "stripe";
+await new_tab(`https://wellfound.com/company/${company_slug}/jobs`);
+await wait_for_load();
+await wait(5);
 
-company_slug = "stripe"
-new_tab(f"https://wellfound.com/company/{company_slug}/jobs")
-wait_for_load()
-wait(5)
-
-jobs = js("""
+const jobs = await js(`
 (function() {
   // Job listing cards — Wellfound uses role="listitem" or li elements in job list
   var cards = document.querySelectorAll('[data-test^="StartupJobListing"], li[class*="job"], div[class*="JobListing"]');
@@ -240,12 +242,13 @@ jobs = js("""
     };
   }).filter(j => j.title));
 })()
-""")
+`);
 
-results = json.loads(jobs)
-print(f"Found {len(results)} jobs")
-for j in results:
-    print(f"  {j['title']} | {j.get('location','?')} | {j.get('comp','?')}")
+const results = JSON.parse(jobs);
+console.log(`Found ${results.length} jobs`);
+for (const j of results) {
+  console.log(`  ${j.title} | ${j.location ?? "?"} | ${j.comp ?? "?"}`);
+}
 ```
 
 ---
@@ -254,15 +257,13 @@ for j in results:
 
 The main `/jobs` page shows a curated job feed. Filters are not accessible via URL params (DataDome blocks `?role=...`). Use the UI dropdown filters after loading the page.
 
-```python
-import json
+```ts
+await new_tab("https://wellfound.com/jobs");
+await wait_for_load();
+await wait(5);
 
-new_tab("https://wellfound.com/jobs")
-wait_for_load()
-wait(5)
-
-# Extract visible job cards
-jobs = js("""
+// Extract visible job cards
+const jobs = await js(`
 (function() {
   // Job cards on the main /jobs board
   var cards = document.querySelectorAll(
@@ -290,10 +291,10 @@ jobs = js("""
     };
   }).filter(j => j.title));
 })()
-""")
+`);
 
-results = json.loads(jobs)
-print(f"Found {len(results)} jobs")
+const results = JSON.parse(jobs);
+console.log(`Found ${results.length} jobs`);
 ```
 
 ---
@@ -307,67 +308,64 @@ Wellfound's GraphQL endpoint (`/graphql`) requires:
 
 **This approach only works from inside a browser session (after navigating to any Wellfound page).**
 
-```python
-import json
+```ts
+// Step 1: Load any Wellfound page so the session cookie + DataDome cookie are set
+await new_tab("https://wellfound.com/");
+await wait_for_load();
+await wait(5);
 
-# Step 1: Load any Wellfound page so the session cookie + DataDome cookie are set
-new_tab("https://wellfound.com/")
-wait_for_load()
-wait(5)
+// Step 2: Extract CSRF token from meta tag
+const csrf = await js(`document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : null`);
+if (!csrf) throw new Error("CSRF token not found — page may not have loaded correctly");
 
-# Step 2: Extract CSRF token from meta tag
-csrf = js("document.querySelector('meta[name=\"csrf-token\"]') ? document.querySelector('meta[name=\"csrf-token\"]').getAttribute('content') : null")
-if not csrf:
-    raise RuntimeError("CSRF token not found — page may not have loaded correctly")
+console.log(`CSRF token: ${csrf.slice(0, 20)}...`);
 
-print(f"CSRF token: {csrf[:20]}...")
-
-# Step 3: Execute GraphQL query via fetch() from within the browser
-# This uses the browser's existing cookies automatically
-result = js(f"""
-(async function() {{
-  try {{
-    var resp = await fetch('/graphql', {{
+// Step 3: Execute GraphQL query via fetch() from within the browser
+// This uses the browser's existing cookies automatically
+const result = await js(`
+(async function() {
+  try {
+    var resp = await fetch('/graphql', {
       method: 'POST',
       credentials: 'include',
-      headers: {{
+      headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'x-csrf-token': '{csrf}',
+        'x-csrf-token': ${JSON.stringify(csrf)},
         'x-requested-with': 'XMLHttpRequest',
-      }},
-      body: JSON.stringify({{
-        query: `query StartupShow($slug: String!) {{
-          startup(slug: $slug) {{
+      },
+      body: JSON.stringify({
+        query: \`query StartupShow($slug: String!) {
+          startup(slug: $slug) {
             id
             name
             description: highConcept
             productDesc
             teamSize
-            locations {{ displayName }}
-            markets {{ displayName }}
+            locations { displayName }
+            markets { displayName }
             totalRaised
             fundingStage
             badges
             hiring
             jobListingsCount
-          }}
-        }}`,
-        variables: {{ slug: "stripe" }}
-      }})
-    }});
+          }
+        }\`,
+        variables: { slug: "stripe" }
+      })
+    });
     var data = await resp.json();
     return JSON.stringify(data);
-  }} catch(e) {{
-    return JSON.stringify({{error: e.message}});
-  }}
-}})()
-""")
+  } catch(e) {
+    return JSON.stringify({error: e.message});
+  }
+})()
+`);
+console.log("GraphQL response:", String(result).slice(0, 1000));
 
-# js() with async returns a Promise — use js_async() if available, or eval trick:
-# Note: the above may return None if js() doesn't await Promises.
-# Use this pattern instead if js() doesn't handle async:
-result_sync = js("""
+// js() evaluates with awaitPromise, so the async IIFE above resolves to the JSON string.
+// Fallback if a page blocks awaiting: fire the request, stash the result on window, poll it.
+await js(`
 var done = false, out = null;
 fetch('/graphql', {
   method: 'POST',
@@ -383,13 +381,14 @@ fetch('/graphql', {
   })
 }).then(r => r.json()).then(d => { window._wf_gql_result = JSON.stringify(d); });
 'pending'
-""")
-# Wait for async result
-import time; time.sleep(3)
-gql_result = js("window._wf_gql_result || null")
-if gql_result:
-    data = json.loads(gql_result)
-    print("GraphQL response:", json.dumps(data, indent=2)[:1000])
+`);
+// Wait for async result
+await wait(3);
+const gql_result = await js("window._wf_gql_result || null");
+if (gql_result) {
+  const data = JSON.parse(gql_result);
+  console.log("GraphQL response:", JSON.stringify(data, null, 2).slice(0, 1000));
+}
 ```
 
 ### Known GraphQL operations
@@ -413,10 +412,10 @@ Wellfound shows a sign-in modal on:
 
 Company overview pages typically show content without login. Job listings require login to see full details and apply.
 
-```python
-def dismiss_wellfound_login_modal():
-    """Close the Wellfound sign-in modal. Safe to call if no modal is present."""
-    closed = js("""
+```ts
+async function dismiss_wellfound_login_modal(): Promise<string | null> {
+  // Close the Wellfound sign-in modal. Safe to call if no modal is present.
+  const closed = await js(`
     (function() {
       var selectors = [
         'button[aria-label="Close"]',
@@ -439,10 +438,10 @@ def dismiss_wellfound_login_modal():
       document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', keyCode: 27, bubbles: true}));
       return 'escape';
     })()
-    """)
-    if closed:
-        wait(1)
-    return closed
+  `);
+  if (closed) await wait(1);
+  return closed;
+}
 ```
 
 ---
@@ -451,30 +450,32 @@ def dismiss_wellfound_login_modal():
 
 After `new_tab()` + `wait(5)`, verify you are on a real Wellfound page:
 
-```python
-def wellfound_is_blocked() -> bool:
-    """True if DataDome or Cloudflare challenge is still showing."""
-    title = js("document.title") or ""
-    url   = page_info()["url"]
-    # DataDome challenge page has no useful title; CF shows "Just a moment..."
-    blocked = (
-        "Just a moment" in title or
-        "wellfound.com" not in url or
-        "captcha-delivery.com" in js("document.body.innerHTML or ''") or
-        not title
-    )
-    return blocked
+```ts
+async function wellfound_is_blocked(): Promise<boolean> {
+  // True if DataDome or Cloudflare challenge is still showing.
+  const title = (await js("document.title")) || "";
+  const url = (await page_info()).url;
+  // DataDome challenge page has no useful title; CF shows "Just a moment..."
+  const blocked =
+    title.includes("Just a moment") ||
+    !url.includes("wellfound.com") ||
+    ((await js("document.body.innerHTML || ''")) as string).includes("captcha-delivery.com") ||
+    !title;
+  return blocked;
+}
 
-# Usage
-new_tab("https://wellfound.com/company/stripe")
-wait_for_load()
-wait(5)
+// Usage
+await new_tab("https://wellfound.com/company/stripe");
+await wait_for_load();
+await wait(5);
 
-if wellfound_is_blocked():
-    wait(8)   # DataDome sometimes needs up to 10s total
-    if wellfound_is_blocked():
-        screenshot("/tmp/wellfound_blocked.png")
-        raise RuntimeError("DataDome/CF challenge did not resolve — see /tmp/wellfound_blocked.png")
+if (await wellfound_is_blocked()) {
+  await wait(8);   // DataDome sometimes needs up to 10s total
+  if (await wellfound_is_blocked()) {
+    await screenshot("/tmp/wellfound_blocked.png");
+    throw new Error("DataDome/CF challenge did not resolve — see /tmp/wellfound_blocked.png");
+  }
+}
 ```
 
 ---
@@ -519,7 +520,7 @@ Wellfound uses **Tailwind CSS** — no stable semantic class names. These patter
 5. **GraphQL requires both CSRF token AND browser session cookies.** The CSRF token is a
    per-session value from `<meta name="csrf-token">`. Cloudflare Bot Management blocks
    `POST /graphql` from non-browser sessions. Always fire GraphQL via `fetch()` inside the
-   browser session (not from Python's `http_get`).
+   browser session (not from the harness-side `http_get`).
 
 6. **`?role=` and `?location=` params are robots.txt-disallowed.** Wellfound may redirect or
    show a login wall for filtered job search URLs. Load `/jobs` unfiltered and use in-page
@@ -559,20 +560,18 @@ In a real Chrome browser, both challenges resolve automatically without user int
 
 ## Minimal working example
 
-```python
-import json
+```ts
+// Open Wellfound company page
+await new_tab("https://wellfound.com/company/openai");
+await wait_for_load();
+await wait(5);
 
-# Open Wellfound company page
-new_tab("https://wellfound.com/company/openai")
-wait_for_load()
-wait(5)
+// Verify not blocked
+const title = await js("document.title");
+if ((title || "").includes("Just a moment")) throw new Error(`Still on challenge page: ${title}`);
 
-# Verify not blocked
-title = js("document.title")
-assert "Just a moment" not in (title or ""), f"Still on challenge page: {title}"
-
-# Extract company overview
-data = js("""
+// Extract company overview
+const data = await js(`
 (function() {
   var name = document.querySelector('h1');
   var bodyText = document.body.innerText;
@@ -590,7 +589,7 @@ data = js("""
     locations: locs.slice(0, 5),
   });
 })()
-""")
+`);
 
-print(json.dumps(json.loads(data), indent=2))
+console.log(JSON.stringify(JSON.parse(data), null, 2));
 ```

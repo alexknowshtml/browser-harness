@@ -4,7 +4,7 @@ Field-tested against TechCrunch, The Verge, Ars Technica, BBC, Guardian, Wired, 
 
 ## Lead with RSS — fastest and most reliable
 
-For every site that has a feed, `http_get` + XML parsing is faster and more reliable than a browser. Use `ThreadPoolExecutor` for parallel fetches.
+For every site that has a feed, `http_get` + XML parsing is faster and more reliable than a browser. Use `Promise.all` for parallel fetches.
 
 **Confirmed working RSS feeds (tested):**
 
@@ -26,57 +26,57 @@ For every site that has a feed, `http_get` + XML parsing is faster and more reli
 
 Sequential fetch of 7 feeds: **0.70s**. Parallel fetch of same 7 feeds: **0.16s** (4.3x speedup).
 
-```python
-from concurrent.futures import ThreadPoolExecutor
-import xml.etree.ElementTree as ET
+```ts
+// Bun has no DOMParser: pull <item> blocks and child tags out with regex.
+const RSS_FEEDS: [string, string][] = [
+  ["TechCrunch",     "https://techcrunch.com/feed/"],
+  ["Ars Technica",   "https://feeds.arstechnica.com/arstechnica/index"],
+  ["BBC News",       "http://feeds.bbci.co.uk/news/rss.xml"],
+  ["Guardian World", "https://www.theguardian.com/world/rss"],
+  ["Wired",          "https://www.wired.com/feed/rss"],
+  ["NPR",            "https://feeds.npr.org/1001/rss.xml"],
+  ["Wired",          "https://www.wired.com/feed/rss"],
+];
 
-RSS_FEEDS = [
-    ("TechCrunch",     "https://techcrunch.com/feed/"),
-    ("Ars Technica",   "https://feeds.arstechnica.com/arstechnica/index"),
-    ("BBC News",       "http://feeds.bbci.co.uk/news/rss.xml"),
-    ("Guardian World", "https://www.theguardian.com/world/rss"),
-    ("Wired",          "https://www.wired.com/feed/rss"),
-    ("NPR",            "https://feeds.npr.org/1001/rss.xml"),
-    ("Wired",          "https://www.wired.com/feed/rss"),
-]
+// Text of the first <tag>, CDATA unwrapped
+const tag = (xml: string, name: string) => {
+  const m = xml.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`));
+  return m ? m[1].replace(/^<!\[CDATA\[|\]\]>$/g, "").trim() : null;
+};
 
-def fetch_rss(name_url):
-    name, url = name_url
-    xml_data = http_get(url)
-    root = ET.fromstring(xml_data)
-    items = root.findall('.//item')
-    return name, items
+async function fetch_rss([name, url]: [string, string]) {
+  const xml_data = await http_get(url);
+  const items = [...xml_data.matchAll(/<item\b[\s\S]*?<\/item>/g)].map((m) => m[0]);
+  return [name, items] as const;
+}
 
-with ThreadPoolExecutor(max_workers=len(RSS_FEEDS)) as ex:
-    results = list(ex.map(fetch_rss, RSS_FEEDS))
+const results = await Promise.all(RSS_FEEDS.map(fetch_rss));
 
-for name, items in results:
-    for item in items[:5]:
-        title = item.find('title').text
-        link  = item.find('link').text
-        print(f"[{name}] {title}")
+for (const [name, items] of results) {
+  for (const item of items.slice(0, 5)) {
+    const title = tag(item, "title");
+    const link  = tag(item, "link");
+    console.log(`[${name}] ${title}`);
+  }
+}
 ```
 
 ## The Verge requires Atom namespace parsing
 
-The Verge's feed is Atom format, not RSS 2.0. The naive `.//item` selector returns 0 items. The `title` element uses `type="html"` attribute but its `.text` still contains the plain string.
+The Verge's feed is Atom format, not RSS 2.0. The naive `<item>` match returns 0 items. The `title` element uses a `type="html"` attribute but its text is still the plain string.
 
-```python
-import xml.etree.ElementTree as ET
+```ts
+const xml_data = await http_get("https://www.theverge.com/rss/index.xml");
+const entries = [...xml_data.matchAll(/<entry\b[\s\S]*?<\/entry>/g)].map((m) => m[0]);   // 10 entries
 
-NS = {'atom': 'http://www.w3.org/2005/Atom'}
-
-xml_data = http_get("https://www.theverge.com/rss/index.xml")
-root = ET.fromstring(xml_data)
-entries = root.findall('.//atom:entry', NS)   # 10 entries
-
-for e in entries:
-    title = e.find('atom:title', NS).text
-    link  = e.find('atom:link', NS).get('href')
-    print(title, link)
+for (const e of entries) {
+  const title = e.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1] ?? null;
+  const link  = e.match(/<link[^>]*\bhref="([^"]+)"/)?.[1] ?? null;
+  console.log(title, link);
+}
 ```
 
-Do NOT use `root.findall('.//{http://www.w3.org/2005/Atom}entry')` with a bare namespace — the explicit `NS` dict approach above is cleaner. Do NOT call `.text` on a `find()` result without checking for `None` first (the naive RSS path hit this on The Verge).
+Match `<entry>` blocks, not `<item>`. Do NOT read a match group without the `?.[1] ?? null` guard: a missing tag returns `null` (the naive RSS path hit this on The Verge).
 
 ## Sites that block http_get entirely
 
@@ -92,18 +92,17 @@ Reuters's old RSS feeds (`feeds.reuters.com/reuters/topNews`) resolve to DNS NXD
 
 NYT, Guardian, HN, CNN all return full HTML via `http_get` without issues. The User-Agent header (`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36`) is not required for these but doesn't hurt.
 
-```python
-headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
-html = http_get("https://www.nytimes.com", headers=headers)  # 1.1MB, works
-html = http_get("https://news.ycombinator.com")               # 34KB, works without UA
+```ts
+const headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"};
+let html = await http_get("https://www.nytimes.com", headers);  // 1.1MB, works
+html = await http_get("https://news.ycombinator.com");          // 34KB, works without UA
 ```
 
 **HN parsing via regex (no HTML parser needed):**
-```python
-import re
-html = http_get("https://news.ycombinator.com")
-stories = re.findall(r'class="titleline"><a href="([^"]+)"[^>]*>([^<]+)<', html)
-# Returns list of (url, title) tuples — 30 stories on the front page
+```ts
+const html = await http_get("https://news.ycombinator.com");
+const stories = [...html.matchAll(/class="titleline"><a href="([^"]+)"[^>]*>([^<]+)</g)].map((m) => [m[1], m[2]]);
+// Returns list of [url, title] pairs — 30 stories on the front page
 ```
 
 ## Browser extraction — use when RSS is unavailable
@@ -112,12 +111,12 @@ stories = re.findall(r'class="titleline"><a href="([^"]+)"[^>]*>([^<]+)<', html)
 
 No consent banner in headless browser (US region served; GDPR banner only appears for EU IP). Articles use `article h2` selectors.
 
-```python
-goto("https://www.bbc.com/news")
-wait_for_load()
-wait(2)
+```ts
+await goto("https://www.bbc.com/news");
+await wait_for_load();
+await wait(2);
 
-headlines = js("""
+const headlines = await js(`
   Array.from(document.querySelectorAll('article h2'))
     .map(h => ({
       title: h.innerText.trim(),
@@ -125,18 +124,18 @@ headlines = js("""
            h.parentElement.querySelector('a')?.href
     }))
     .filter(h => h.title.length > 10)
-""")
-# Returns 50+ articles. First one is typically LIVE/breaking.
+`);
+// Returns 50+ articles. First one is typically LIVE/breaking.
 ```
 
 If running from a EU IP and a consent banner appears:
-```python
-accept = js("""
+```ts
+const accept = await js(`
   var btns = Array.from(document.querySelectorAll('button'));
   var btn = btns.find(b => /accept all|agree|continue/i.test(b.innerText));
   if (btn) { btn.click(); return 'clicked: ' + btn.innerText; }
   return 'no banner';
-""")
+`);
 ```
 
 Confirmed: `h3` elements on BBC are site-chrome labels ("The BBC is in multiple languages"), NOT article headlines. Use `article h2` only.
@@ -145,12 +144,12 @@ Confirmed: `h3` elements on BBC are site-chrome labels ("The BBC is in multiple 
 
 `article` and `.post-block` selectors return 0 results — TechCrunch changed their layout. Articles are in `h3` elements.
 
-```python
-goto("https://techcrunch.com")
-wait_for_load()
-wait(2)
+```ts
+await goto("https://techcrunch.com");
+await wait_for_load();
+await wait(2);
 
-articles = js("""
+const articles = await js(`
   Array.from(document.querySelectorAll('h3'))
     .map(h => ({
       title: h.innerText?.trim(),
@@ -158,8 +157,8 @@ articles = js("""
            h.parentElement?.querySelector('a')?.href
     }))
     .filter(a => a.title && a.title.length > 20)
-""")
-# Returns ~10 articles. RSS is preferred (20 items, no JS required).
+`);
+// Returns ~10 articles. RSS is preferred (20 items, no JS required).
 ```
 
 RSS is almost always faster for TechCrunch: **0.08s vs 3-5s browser** load. Only fall back to browser if you need paywall/subscriber content.
@@ -168,18 +167,18 @@ RSS is almost always faster for TechCrunch: **0.08s vs 3-5s browser** load. Only
 
 `http_get` returns 403. Browser loads but the homepage is heavily JS-rendered with delayed hydration. `h3` selectors only return nav elements after standard `wait_for_load()`. Use `wait(3)` plus scroll:
 
-```python
-goto("https://www.reuters.com")
-wait_for_load()
-wait(3)
-js("window.scrollTo(0, 500)")
-wait(1)
-# Category links work for topic nav:
-links = js("""
+```ts
+await goto("https://www.reuters.com");
+await wait_for_load();
+await wait(3);
+await js("window.scrollTo(0, 500)");
+await wait(1);
+// Category links work for topic nav:
+const links = await js(`
   Array.from(document.querySelectorAll('a[href*="/world/"], a[href*="/technology/"]'))
     .filter(a => a.innerText.trim().length > 20)
     .map(a => ({text: a.innerText.trim(), href: a.href}))
-""")
+`);
 ```
 
 Reuters headlines are best obtained from the Guardian or AP — Reuters no longer has a public RSS and their JS hydration is slow.
@@ -189,10 +188,10 @@ Reuters headlines are best obtained from the Guardian or AP — Reuters no longe
 ```
 Does the site have an RSS/Atom feed?
   YES → http_get + XML parse (fastest, ~0.1s per feed)
-         - RSS 2.0: root.findall('.//item')
-         - Atom:    root.findall('.//atom:entry', {'atom': 'http://www.w3.org/2005/Atom'})
+         - RSS 2.0: xml.matchAll(/<item\b[\s\S]*?<\/item>/g)
+         - Atom:    xml.matchAll(/<entry\b[\s\S]*?<\/entry>/g)
   NO  → Does http_get return valid HTML (not 403/401/JS shell)?
-          YES → http_get + regex/BeautifulSoup (fast, ~0.2-0.3s)
+          YES → http_get + regex (fast, ~0.2-0.3s)
           NO  → goto + wait_for_load + wait(2) + js() extraction (slow, 3-8s)
 ```
 
@@ -202,4 +201,4 @@ Does the site have an RSS/Atom feed?
 - **Reuters http_get** — returns 403 regardless of User-Agent
 - **TechCrunch `article`/`.post-block` selectors** — layout changed, use `h3` instead
 - **BBC `h3` for headlines** — those are site-chrome labels; use `article h2`
-- **The Verge `.//item` selector** — feed is Atom, not RSS; use Atom namespace
+- **The Verge `<item>` match** — feed is Atom, not RSS; match `<entry>`

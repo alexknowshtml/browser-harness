@@ -13,9 +13,9 @@ Loads Philadelphia County results. `term=philadelphia` triggers location search,
 - Results fully render within ~4s after `wait_for_load()`
 
 ## Finding a specific restaurant's time slot
-```python
-links = js('JSON.stringify([...document.querySelectorAll("a")].map(a => ({href: a.href, text: a.innerText.trim()})))')
-# Find restaurant anchor, then scan forward for matching time text
+```ts
+const links = JSON.parse(await js('JSON.stringify([...document.querySelectorAll("a")].map(a => ({href: a.href, text: a.innerText.trim()})))'))
+// Find restaurant anchor, then scan forward for matching time text
 ```
 
 ## Getting clickable coordinates (critical)
@@ -46,4 +46,4 @@ links = js('JSON.stringify([...document.querySelectorAll("a")].map(a => ({href: 
 - `js('return ...')` is INVALID — `js()` takes an expression, not a function body
 - Screenshot pixel coords ≠ DOM coords. Never hardcode from screenshot measurements
 - Page renders restaurant cards but `querySelectorAll('h2, article')` returns empty — use `<a href*="/r/">` pattern instead
-- `wait_for_load()` is not enough — add `time.sleep(4)` after for React hydration
+- `wait_for_load()` is not enough — add `await wait(4)` after for React hydration

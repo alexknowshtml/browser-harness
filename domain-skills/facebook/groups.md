@@ -52,13 +52,13 @@ of this file and update this table — that's the workflow, not a fallback.
 FB virtualizes the feed: scrolled-past posts get unmounted from the DOM. So
 "scroll then collect" misses old posts. Pattern that works: **collect-as-you-go.**
 
-```python
-seen = {}  # post_url -> dict
-TARGET = 50  # how many posts to collect
-MAX_SCROLLS = 30
+```ts
+const seen: Record<string, any> = {}  // post_url -> object
+const TARGET = 50  // how many posts to collect
+const MAX_SCROLLS = 30
 
-for i in range(MAX_SCROLLS):
-    new_posts = js("""
+for (let i = 0; i < MAX_SCROLLS; i++) {
+  const new_posts = (await js(`
       Array.from(document.querySelectorAll('div[role="article"]')).map(el => {
         const link = el.querySelector('a[href*="/groups/"][href*="/posts/"], a[href*="/groups/"][href*="/permalink/"]');
         const body = el.querySelector('div[data-ad-preview="message"], div[data-ad-comet-preview="message"]');
@@ -74,13 +74,12 @@ for i in range(MAX_SCROLLS):
           externals: externals,
         };
       }).filter(p => p.url)
-    """) or []
-    for p in new_posts:
-        seen.setdefault(p["url"], p)
-    if len(seen) >= TARGET:
-        break
-    scroll(640, 400, dy=900)  # scroll near middle of viewport
-    wait(2.5)  # FB needs ~2s to render new batch + a little buffer
+    `)) || []
+  for (const p of new_posts) seen[p.url] ??= p
+  if (Object.keys(seen).length >= TARGET) break
+  await scroll(640, 400, 900)  // scroll near middle of viewport (dy=900)
+  await wait(2.5)  // FB needs ~2s to render new batch + a little buffer
+}
 ```
 
 `wait(2.5)` is the floor. Faster than that and you'll see empty post containers
@@ -92,13 +91,12 @@ because React hasn't hydrated them yet.
 Every external link gets wrapped in `https://l.facebook.com/l.php?u={URL-encoded real URL}&h=...`.
 You want the real URL, not the redirector.
 
-```python
-from urllib.parse import urlparse, parse_qs, unquote
-def decode_fb_link(href):
-    if not href.startswith("https://l.facebook.com/l.php"):
-        return href
-    q = parse_qs(urlparse(href).query)
-    return unquote(q["u"][0]) if "u" in q else href
+```ts
+function decode_fb_link(href: string): string {
+  if (!href.startsWith("https://l.facebook.com/l.php")) return href
+  const u = new URL(href).searchParams.get("u")  // searchParams already URL-decodes
+  return u ?? href
+}
 ```
 
 ## Handoff to Firecrawl (for the public outbound URLs)
@@ -107,21 +105,19 @@ Once you have the harvested external list, those URLs are outside FB's walled
 garden — public, scrapable by anything. Firecrawl's schema-native extraction
 shines here because you want typed results across heterogeneous sources.
 
-```python
-# After the scroll loop:
-external_urls = []
-for p in seen.values():
-    for raw in p["externals"]:
-        external_urls.append(decode_fb_link(raw))
-external_urls = sorted(set(external_urls))
-print(f"harvested {len(external_urls)} unique external URLs")
+```ts
+// After the scroll loop:
+const external_urls = [...new Set(
+  Object.values(seen).flatMap((p: any) => p.externals.map(decode_fb_link)),
+)].sort()
+console.log(`harvested ${external_urls.length} unique external URLs`)
 
-# Hand off to Firecrawl MCP in the calling conversation:
-#   firecrawl_extract(
-#       urls=external_urls,
-#       prompt="Extract product/listing name, price, location, year, and key features.",
-#       schema={...}
-#   )
+// Hand off to Firecrawl MCP in the calling conversation:
+//   firecrawl_extract(
+//       urls=external_urls,
+//       prompt="Extract product/listing name, price, location, year, and key features.",
+//       schema={...}
+//   )
 ```
 
 When Firecrawl isn't available or the pages are simple, `http_get(url)` from
@@ -151,8 +147,8 @@ to re-verify a phone or confirm a login from a new device. If that happens,
 Paste this into a Harness stdin block to see what anchors currently exist in the
 visible feed. Run it on a group you're a member of.
 
-```python
-print(js("""
+```ts
+console.log(await js(`
   ({
     articles: document.querySelectorAll('div[role="article"]').length,
     body_preview_a: document.querySelectorAll('div[data-ad-preview="message"]').length,
@@ -161,36 +157,35 @@ print(js("""
     permalink_posts: document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]').length,
     permalink_permalinks: document.querySelectorAll('a[href*="/groups/"][href*="/permalink/"]').length,
   })
-"""))
-# If any count is 0, the selector drifted. Open DevTools, right-click a visible
-# post, inspect, find the new stable attribute (aria-*, data-*), and update the
-# DOM anchors table above.
+`))
+// If any count is 0, the selector drifted. Open DevTools, right-click a visible
+// post, inspect, find the new stable attribute (aria-*, data-*), and update the
+// DOM anchors table above.
 ```
 
 
 ## Full example — mine one group, emit JSON for downstream tools
 
 ```bash
-cd ~/Developer/browser-harness && uv run browser-harness <<'PY'
-import json, sys
-from urllib.parse import urlparse, parse_qs, unquote
+cd ~/Developer/browser-harness && browser-harness <<'TS'
+const GROUP = "riceLakeBoating"          // slug or numeric id
+const TARGET = 50                         // how many posts to collect
+const MAX_SCROLLS = 30
 
-GROUP = "riceLakeBoating"          # slug or numeric id
-TARGET = 50                         # how many posts to collect
-MAX_SCROLLS = 30
+await goto(`https://www.facebook.com/groups/${GROUP}/?sorting_setting=CHRONOLOGICAL`)
+await wait_for_load()
+await wait(2)
 
-goto(f"https://www.facebook.com/groups/{GROUP}/?sorting_setting=CHRONOLOGICAL")
-wait_for_load()
-wait(2)
+// Abort if FB bounced us
+const info = await page_info()
+if (info.url.includes("/checkpoint/") || info.url.includes("/login")) {
+  console.error("AUTH_WALL — stop and have Jay re-verify the account.")
+  process.exit(1)
+}
 
-# Abort if FB bounced us
-info = page_info()
-if "/checkpoint/" in info["url"] or "/login" in info["url"]:
-    sys.exit("AUTH_WALL — stop and have Jay re-verify the account.")
-
-seen = {}
-for _ in range(MAX_SCROLLS):
-    batch = js("""
+const seen: Record<string, any> = {}
+for (let i = 0; i < MAX_SCROLLS; i++) {
+  const batch = (await js(`
       Array.from(document.querySelectorAll('div[role="article"]')).map(el => {
         const link = el.querySelector('a[href*="/groups/"][href*="/posts/"], a[href*="/groups/"][href*="/permalink/"]');
         const body = el.querySelector('div[data-ad-preview="message"], div[data-ad-comet-preview="message"]');
@@ -200,29 +195,28 @@ for _ in range(MAX_SCROLLS):
         return { url: link?.href, author: author?.innerText, time: time?.innerText,
                  body: body?.innerText?.slice(0, 4000), externals };
       }).filter(p => p.url)
-    """) or []
-    for p in batch:
-        seen.setdefault(p["url"], p)
-    if len(seen) >= TARGET:
-        break
-    scroll(640, 400, dy=900)
-    wait(2.5)
+    `)) || []
+  for (const p of batch) seen[p.url] ??= p
+  if (Object.keys(seen).length >= TARGET) break
+  await scroll(640, 400, 900)
+  await wait(2.5)
+}
 
-def decode(u):
-    if not u.startswith("https://l.facebook.com/l.php"): return u
-    q = parse_qs(urlparse(u).query)
-    return unquote(q["u"][0]) if "u" in q else u
+function decode(u: string): string {
+  if (!u.startsWith("https://l.facebook.com/l.php")) return u
+  return new URL(u).searchParams.get("u") ?? u
+}
 
-posts = list(seen.values())
-all_externals = sorted({decode(x) for p in posts for x in p["externals"]})
-screenshot(f"/tmp/fb-group-{GROUP}.png", full=True)
-print(json.dumps({
-    "group": GROUP,
-    "post_count": len(posts),
-    "posts": posts,
-    "external_urls": all_externals,
-}, ensure_ascii=False))
-PY
+const posts = Object.values(seen)
+const all_externals = [...new Set(posts.flatMap((p: any) => p.externals.map(decode)))].sort()
+await screenshot(`/tmp/fb-group-${GROUP}.png`, true)
+console.log(JSON.stringify({
+  group: GROUP,
+  post_count: posts.length,
+  posts,
+  external_urls: all_externals,
+}))
+TS
 ```
 
 The JSON on stdout is the handoff payload — parse it in the calling agent and

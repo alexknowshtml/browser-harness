@@ -74,10 +74,9 @@ Body (816 bytes — a JavaScript challenge, not a hard block):
 
 ### `robots.txt` (200 OK)
 
-```python
-from helpers import http_get
-text = http_get("https://www.etsy.com/robots.txt")
-# Returns 51 KB plain-text file — no DataDome
+```ts
+const text = await http_get("https://www.etsy.com/robots.txt");
+// Returns 51 KB plain-text file — no DataDome
 ```
 
 The robots.txt reveals URL structure, disallowed parameters, and allowed paths. Etsy disallows `/search?*q=` (no-empty-q searches) and faceted search params (`attr_*`, `price_bucket`, `ship_to`, `search_type`). Basic search with `?q=keyword` is not explicitly disallowed by robots but is blocked by DataDome in practice.
@@ -86,33 +85,30 @@ The robots.txt reveals URL structure, disallowed parameters, and allowed paths. 
 
 The `openapi.etsy.com/v3/` endpoint is NOT DataDome-protected. It returns structured JSON but requires a free API key from [developer.etsy.com](https://developer.etsy.com/).
 
-```python
-import json
-from helpers import http_get
+```ts
+const API_KEY = "your_key_here"; // from developer.etsy.com
 
-API_KEY = "your_key_here"  # from developer.etsy.com
+async function etsy_api(path: string, params: Record<string, any> = {}) {
+  const qs = new URLSearchParams(params).toString();
+  const url = `https://openapi.etsy.com/v3/application/${path}?${qs}`;
+  const data = await http_get(url, { "x-api-key": API_KEY });
+  return JSON.parse(data);
+}
 
-def etsy_api(path, **params):
-    from urllib.parse import urlencode
-    qs = urlencode(params)
-    url = f"https://openapi.etsy.com/v3/application/{path}?{qs}"
-    data = http_get(url, headers={"x-api-key": API_KEY})
-    return json.loads(data)
+// Search listings
+const results = await etsy_api("listings/active", { limit: 25, keywords: "handmade candle",
+  sort_on: "created", sort_order: "desc" });
+// results.results is a list of listing objects
+// results.count is total match count
 
-# Search listings
-results = etsy_api("listings/active", limit=25, keywords="handmade candle",
-                   sort_on="created", sort_order="desc")
-# results['results'] is a list of listing dicts
-# results['count'] is total match count
+// Get a single listing
+const listing = await etsy_api("listings/1234567890");
 
-# Get a single listing
-listing = etsy_api("listings/1234567890")
+// Get all listings for a shop
+const shop_listings = await etsy_api("shops/CandlesByNature/listings/active", { limit: 100 });
 
-# Get all listings for a shop
-shop_listings = etsy_api("shops/CandlesByNature/listings/active", limit=100)
-
-# Get shop info
-shop = etsy_api("shops/CandlesByNature")
+// Get shop info
+const shop = await etsy_api("shops/CandlesByNature");
 ```
 
 Error without a key:
@@ -160,13 +156,11 @@ Since http_get is blocked, all HTML scraping requires the Chrome browser via CDP
 
 ### Navigation pattern
 
-```python
-from helpers import goto, wait_for_load, wait, js, new_tab
-
-# Always use new_tab() for the first Etsy navigation in a session
-tid = new_tab("https://www.etsy.com/search?q=handmade+candle&explicit=1")
-wait_for_load()
-wait(3)  # Etsy React SPA needs extra time after readyState=complete
+```ts
+// Always use new_tab() for the first Etsy navigation in a session
+const tid = await new_tab("https://www.etsy.com/search?q=handmade+candle&explicit=1");
+await wait_for_load();
+await wait(3); // Etsy React SPA needs extra time after readyState=complete
 ```
 
 ### Search URL construction
@@ -194,8 +188,8 @@ Parameters:
 
 Etsy renders results as a React SPA. The listing cards use data attributes and consistent class patterns:
 
-```python
-results = js("""
+```ts
+const results = await js(`
   Array.from(document.querySelectorAll('[data-listing-id]')).map(el => ({
     listing_id: el.getAttribute('data-listing-id'),
     title: el.querySelector('h3, [class*="listing-link"]')?.innerText?.trim()
@@ -207,27 +201,29 @@ results = js("""
     thumbnail: el.querySelector('img[src*="etsystatic"]')?.src,
     is_ad: !!el.querySelector('[class*="ad-label"], [class*="sponsored"]')
   })).filter(r => r.listing_id)
-""")
+`);
 ```
 
 **Alternative — JSON-LD ItemList** (more reliable than DOM selectors):
 
 Etsy's SSR HTML embeds a `<script type="application/ld+json">` with an `ItemList` on search pages. In the browser, extract it via:
 
-```python
-ld_json_str = js("""
+```ts
+const ld_json_str = await js(`
   Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
     .map(s => { try { return JSON.parse(s.textContent); } catch(e) { return null; } })
     .filter(d => d && d['@type'] === 'ItemList')[0]
-""")
-# Returns the ItemList object or null
+`);
+// Returns the ItemList object or null
 
-if ld_json_str:
-    # ld_json_str.itemListElement is a list of:
-    # { '@type': 'ListItem', 'position': 1,
-    #   'url': 'https://www.etsy.com/listing/...', 'name': 'Handmade Soy Candle' }
-    for item in ld_json_str.get('itemListElement', []):
-        print(item['position'], item['url'], item.get('name'))
+if (ld_json_str) {
+  // ld_json_str.itemListElement is a list of:
+  // { '@type': 'ListItem', 'position': 1,
+  //   'url': 'https://www.etsy.com/listing/...', 'name': 'Handmade Soy Candle' }
+  for (const item of ld_json_str.itemListElement ?? []) {
+    console.log(item.position, item.url, item.name);
+  }
+}
 ```
 
 Expected output (ItemList typically has 48 items per search page):
@@ -239,13 +235,13 @@ Expected output (ItemList typically has 48 items per search page):
 
 ### Listing detail page extraction (browser)
 
-```python
-goto("https://www.etsy.com/listing/1234567890/product-slug")
-wait_for_load()
-wait(2)
+```ts
+await goto("https://www.etsy.com/listing/1234567890/product-slug");
+await wait_for_load();
+await wait(2);
 
-# JSON-LD Product schema (most reliable)
-product = js("""
+// JSON-LD Product schema (most reliable)
+const product = await js(`
   (function() {
     var scripts = document.querySelectorAll('script[type="application/ld+json"]');
     for (var s of scripts) {
@@ -256,25 +252,25 @@ product = js("""
     }
     return null;
   })()
-""")
+`);
 
-# product fields:
-# product['name']                    → listing title
-# product['description']             → full description
-# product['offers']['price']         → e.g. "25.99"
-# product['offers']['priceCurrency'] → "USD"
-# product['offers']['availability']  → "http://schema.org/InStock"
-# product['brand']['name']           → shop name (seller)
-#   OR product['seller']['name']
-# product['aggregateRating']['ratingValue']  → e.g. "4.8"
-# product['aggregateRating']['reviewCount']  → e.g. 1247
-# product['image']                   → [list of image URLs]
+// product fields:
+// product.name                    → listing title
+// product.description             → full description
+// product.offers.price            → e.g. "25.99"
+// product.offers.priceCurrency    → "USD"
+// product.offers.availability     → "http://schema.org/InStock"
+// product.brand.name              → shop name (seller)
+//   OR product.seller.name
+// product.aggregateRating.ratingValue  → e.g. "4.8"
+// product.aggregateRating.reviewCount  → e.g. 1247
+// product.image                   → [list of image URLs]
 ```
 
 **Fallback DOM selectors** (when JSON-LD is absent or incomplete):
 
-```python
-detail = js("""
+```ts
+const detail = await js(`
   ({
     title:   document.querySelector('h1[data-buy-box-listing-title]')?.innerText?.trim()
            || document.querySelector('h1.wt-text-body-01')?.innerText?.trim(),
@@ -286,18 +282,18 @@ detail = js("""
     reviews: document.querySelector('[class*="wt-display-inline-flex-xs"] .wt-text-body-01')?.innerText?.trim(),
     sold:    document.querySelector('[class*="wt-text-caption"] span')?.innerText?.trim()
   })
-""")
+`);
 ```
 
 ### Shop/seller page extraction (browser)
 
-```python
-goto("https://www.etsy.com/shop/ShopName")
-wait_for_load()
-wait(2)
+```ts
+await goto("https://www.etsy.com/shop/ShopName");
+await wait_for_load();
+await wait(2);
 
-# JSON-LD on shop pages (type varies: LocalBusiness, Store, or Organization)
-shop_ld = js("""
+// JSON-LD on shop pages (type varies: LocalBusiness, Store, or Organization)
+const shop_ld = await js(`
   (function() {
     for (var s of document.querySelectorAll('script[type="application/ld+json"]')) {
       try {
@@ -307,10 +303,10 @@ shop_ld = js("""
     }
     return null;
   })()
-""")
+`);
 
-# DOM extraction for shop stats
-shop_info = js("""
+// DOM extraction for shop stats
+const shop_info = await js(`
   ({
     name:       document.querySelector('[class*="shop-name"]')?.innerText?.trim(),
     tagline:    document.querySelector('[class*="shop-tagline"]')?.innerText?.trim(),
@@ -320,37 +316,39 @@ shop_info = js("""
     location:   document.querySelector('[class*="shop-location"]')?.innerText?.trim(),
     listing_count: document.querySelectorAll('[data-listing-id]').length
   })
-""")
+`);
 ```
 
 Pagination for shop listings: Etsy loads more listings via infinite scroll or a "Load more" button. After clicking:
 
-```python
-# Check for pagination or load-more
-load_more = js("document.querySelector('[data-wt-shop-listings-load-more], button[class*=\"load-more\"]')?.href")
-if load_more:
-    goto(load_more)
-    wait_for_load()
-    wait(2)
-# Or: scroll to bottom to trigger infinite scroll
-js("window.scrollTo(0, document.body.scrollHeight)")
-wait(2)
+```ts
+// Check for pagination or load-more
+const load_more = await js("document.querySelector('[data-wt-shop-listings-load-more], button[class*=\"load-more\"]')?.href");
+if (load_more) {
+  await goto(load_more);
+  await wait_for_load();
+  await wait(2);
+}
+// Or: scroll to bottom to trigger infinite scroll
+await js("window.scrollTo(0, document.body.scrollHeight)");
+await wait(2);
 ```
 
 ### Pagination (search results)
 
-```python
-# Etsy uses ?page=N — 48 results per page (standard), up to ~250 pages
-next_url = js("document.querySelector('a[data-wt-search-page-next], .wt-action-group a[rel=\"next\"]')?.href")
-if next_url:
-    goto(next_url)
-    wait_for_load()
-    wait(2)
+```ts
+// Etsy uses ?page=N — 48 results per page (standard), up to ~250 pages
+const next_url = await js("document.querySelector('a[data-wt-search-page-next], .wt-action-group a[rel=\"next\"]')?.href");
+if (next_url) {
+  await goto(next_url);
+  await wait_for_load();
+  await wait(2);
+}
 
-# Or construct directly:
-goto(f"https://www.etsy.com/search?q=handmade+candle&explicit=1&page={page_num}")
-wait_for_load()
-wait(2)
+// Or construct directly:
+await goto(`https://www.etsy.com/search?q=handmade+candle&explicit=1&page=${page_num}`);
+await wait_for_load();
+await wait(2);
 ```
 
 ---
@@ -427,7 +425,7 @@ The official API at `openapi.etsy.com/v3/` bypasses DataDome entirely. It requir
 ### Rate limits
 
 - 10,000 requests/day (free tier)
-- No per-second limit documented; add `time.sleep(0.1)` between requests to be safe
+- No per-second limit documented; add `await wait(0.1)` between requests to be safe
 
 ### Key endpoints
 
@@ -453,28 +451,27 @@ GET /application/seller-taxonomy/nodes   (full category tree)
 
 ### Pagination with API
 
-```python
-import json, time
-from helpers import http_get
+```ts
+const API_KEY = "your_key_here";
 
-API_KEY = "your_key_here"
-
-def etsy_search(keywords, max_results=200):
-    results = []
-    offset = 0
-    limit = 100
-    while offset < max_results:
-        url = (f"https://openapi.etsy.com/v3/application/listings/active"
-               f"?keywords={keywords}&limit={limit}&offset={offset}"
-               f"&sort_on=score&sort_order=desc")
-        data = json.loads(http_get(url, headers={"x-api-key": API_KEY}))
-        batch = data.get("results", [])
-        if not batch:
-            break
-        results.extend(batch)
-        offset += limit
-        time.sleep(0.1)
-    return results
+async function etsy_search(keywords: string, max_results = 200) {
+  const results: any[] = [];
+  let offset = 0;
+  const limit = 100;
+  while (offset < max_results) {
+    const url =
+      `https://openapi.etsy.com/v3/application/listings/active` +
+      `?keywords=${keywords}&limit=${limit}&offset=${offset}` +
+      `&sort_on=score&sort_order=desc`;
+    const data = JSON.parse(await http_get(url, { "x-api-key": API_KEY }));
+    const batch = data.results ?? [];
+    if (!batch.length) break;
+    results.push(...batch);
+    offset += limit;
+    await wait(0.1);
+  }
+  return results;
+}
 ```
 
 ---
@@ -495,7 +492,7 @@ def etsy_search(keywords, max_results=200):
 
 - **JSON-LD `brand` vs `seller`.** Etsy's Product schema uses `brand.name` for the shop name on most listing pages, but some pages use `seller.name` instead. Check both.
 
-- **Price in JSON-LD is a string.** `offers.price` is `"25.99"` (string), not a number. Parse with `float()`.
+- **Price in JSON-LD is a string.** `offers.price` is `"25.99"` (string), not a number. Parse with `parseFloat()`.
 
 - **API price is in subunits.** API v3 returns `price.amount = 2599` and `price.divisor = 100`, so the actual price is `amount / divisor = 25.99`. Do NOT use `price.amount` directly.
 
@@ -503,4 +500,4 @@ def etsy_search(keywords, max_results=200):
 
 - **`/market/` pages are different from `/search`.** Market pages (`/market/handmade_candle`) are tag-based browse pages with a different layout than keyword search results — same DataDome block applies.
 
-- **Etsy API `description` may include HTML entities.** Unescape with `html.unescape()` before displaying.
+- **Etsy API `description` may include HTML entities.** Decode HTML entities (e.g. set `textarea.innerHTML` in the page, or a small replace map) before displaying.

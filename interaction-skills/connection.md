@@ -14,34 +14,36 @@ The daemon's `attach_first_page()` handles this by creating an `about:blank` tab
 4. `ensure_real_tab()` attaches to a real page
 5. `switch_tab(target_id)` both attaches AND activates (brings to front)
 
-```python
-if not daemon_alive():
-    import os
-    for f in ["/tmp/bu-default.sock", "/tmp/bu-default.pid"]:
-        if os.path.exists(f): os.unlink(f)
-    ensure_daemon()
+```ts
+import { existsSync, unlinkSync } from "node:fs"
+if (!(await daemon_alive())) {
+  for (const f of ["/tmp/bu-default.sock", "/tmp/bu-default.pid"]) {
+    if (existsSync(f)) unlinkSync(f)
+  }
+  await ensure_daemon()
+}
 
-tabs = list_tabs()
-for t in tabs:
-    print(t["url"][:60])
+const tabs = await list_tabs()
+for (const t of tabs) {
+  console.log(t.url.slice(0, 60))
+}
 
-tab = ensure_real_tab()
+const tab = await ensure_real_tab()
 ```
 
 ## Bringing Chrome to front
 
 If Chrome is behind other windows or on another desktop:
 
-```python
-import subprocess
-subprocess.run(["osascript", "-e", 'tell application "Google Chrome" to activate'])
+```ts
+Bun.spawnSync(["osascript", "-e", 'tell application "Google Chrome" to activate'])
 ```
 
 ## Navigating
 
 Prefer navigating an existing tab over `new_tab()`. Tabs created via CDP's `Target.createTarget` are visible but may open behind the active tab.
 
-```python
-tab = ensure_real_tab()
-goto("https://example.com")
+```ts
+const tab = await ensure_real_tab()
+await goto("https://example.com")
 ```

@@ -20,54 +20,57 @@ TikTok shows "A video you were editing wasn't saved" if a previous upload was ab
 
 ### 1. Attach file
 
-```python
-upload_file('input[type="file"]', "/path/to/video.mp4")
-wait(12)  # processing takes ~10s for 5-10MB
+```ts
+await upload_file('input[type="file"]', "/path/to/video.mp4")
+await wait(12)  // processing takes ~10s for 5-10MB
 ```
 
 ### 2. Caption
 
 TikTok pre-fills caption with the filename. Clear it first:
 
-```python
-js("document.querySelector('div[contenteditable=\"true\"][role=\"combobox\"]').focus()")
-press_key("End")
-for _ in range(25): press_key("Backspace")  # clear filename
-type_text("your caption here #hashtag1 #hashtag2")
-press_key("Escape")  # dismiss hashtag suggestions
-click(700, 50)        # click away to deselect
+```ts
+await js("document.querySelector('div[contenteditable=\"true\"][role=\"combobox\"]').focus()")
+await press_key("End")
+for (let i = 0; i < 25; i++) await press_key("Backspace")  // clear filename
+await type_text("your caption here #hashtag1 #hashtag2")
+await press_key("Escape")  // dismiss hashtag suggestions
+await click(700, 50)        // click away to deselect
 ```
 
-Verify: `js('document.querySelector(\'div[contenteditable="true"][role="combobox"]\').innerText')`
+Verify: `await js('document.querySelector(\'div[contenteditable="true"][role="combobox"]\').innerText')`
 
 ### 3. Schedule
 
 Click the Schedule radio label:
-```python
-js("(()=>{var l=document.querySelectorAll('label');for(var i=0;i<l.length;i++){if(l[i].textContent.trim()==='Schedule'){l[i].click();break}}})()")
+```ts
+await js("(()=>{var l=document.querySelectorAll('label');for(var i=0;i<l.length;i++){if(l[i].textContent.trim()==='Schedule'){l[i].click();break}}})()")
 ```
 
-**Time picker** — uses a scroll-wheel list, NOT a native select. Each `scroll(dy=32)` steps +1 unit, `dy=-32` steps -1 unit.
+**Time picker** — uses a scroll-wheel list, NOT a native select. Each `scroll(x, y, 32)` steps +1 unit, `dy = -32` steps -1 unit.
 
-```python
-# 1. ScrollIntoView and open the time picker
-js("...scrollIntoView the time input...")
-click(time_input_x, time_input_y)
+```ts
+// time_input_x/y and dropdown_y come from getBoundingClientRect() reads
+// 1. ScrollIntoView and open the time picker
+await js("...scrollIntoView the time input...")
+await click(time_input_x, time_input_y)
 
-# 2. Read default time, calculate difference
-default_hour, default_min = 13, 5  # from input value
-target_hour, target_min = 20, 25
+// 2. Read default time, calculate difference
+const [default_hour, default_min] = [13, 5]  // from input value
+const [target_hour, target_min] = [20, 25]
 
-# 3. Scroll hour column (left, x ≈ 349)
-for _ in range(target_hour - default_hour):
-    scroll(349, dropdown_y, dy=32)  # +1 hour per step
+// 3. Scroll hour column (left, x ≈ 349)
+for (let i = 0; i < target_hour - default_hour; i++) {
+  await scroll(349, dropdown_y, 32)  // +1 hour per step
+}
 
-# 4. Scroll minute column (right, x ≈ 437)
-for _ in range((target_min - default_min) // 5):
-    scroll(437, dropdown_y, dy=32)  # +5 min per step
+// 4. Scroll minute column (right, x ≈ 437)
+for (let i = 0; i < Math.floor((target_min - default_min) / 5); i++) {
+  await scroll(437, dropdown_y, 32)  // +5 min per step
+}
 
-# 5. Close and verify
-press_key("Escape")
+// 5. Close and verify
+await press_key("Escape")
 ```
 
 **Date picker** — click the date input, then click the target day number span.
@@ -76,32 +79,32 @@ press_key("Escape")
 
 Under "Show more" section. Toggle is `[aria-checked]` inside the "AI-generated content" parent.
 
-```python
-# Expand settings
-js("...click 'Show more' span...")
-# ScrollIntoView the toggle
-js("...scrollIntoView 'ai-generated content' span...")
-# Read state and click if false
-# A "Turn on" confirmation dialog may appear — click it
+```ts
+// Expand settings
+await js("...click 'Show more' span...")
+// ScrollIntoView the toggle
+await js("...scrollIntoView 'ai-generated content' span...")
+// Read state and click if false
+// A "Turn on" confirmation dialog may appear — click it
 ```
 
 ### 5. Submit
 
 Scroll the Schedule button into view, then CDP `click(x, y)`. After success, page redirects to `/tiktokstudio/content`.
 
-```python
-js("...scrollIntoView Schedule button (offsetWidth > 100)...")
-click(button_x, button_y)
-wait(6)
-assert "content" in page_info()["url"]
+```ts
+await js("...scrollIntoView Schedule button (offsetWidth > 100)...")
+await click(button_x, button_y)
+await wait(6)
+if (!(await page_info()).url.includes("content")) throw new Error("schedule did not redirect to /content")
 ```
 
 ## Gotchas
 
 - **JS `.click()` doesn't work on TikTok's time picker items** — must use CDP `click(x, y)`
-- **Time picker uses virtual scroll** — `scroll(x, y, dy=32)` changes value, NOT regular DOM scroll
+- **Time picker uses virtual scroll** — `scroll(x, y, 32)` changes value, NOT regular DOM scroll
 - **Caption contenteditable appends on type** — always clear with End + Backspace first, never set innerHTML (breaks React state)
-- **beforeunload dialog** blocks navigation if upload is in progress — use `cdp("Page.handleJavaScriptDialog", accept=True)` to dismiss (see `interaction-skills/dialogs.md`)
+- **beforeunload dialog** blocks navigation if upload is in progress — use `await cdp("Page.handleJavaScriptDialog", {accept: true})` to dismiss (see `interaction-skills/dialogs.md`)
 - **Schedule button text** is "Schedule" only after the Schedule radio is selected (otherwise "Post")
 - **"Show more" section** expands the page and pushes the time picker off-viewport — collapse it before adjusting time, expand after
 - **Unicode narrow no-break space** (char 8239) appears between time and AM/PM in scheduled post listings — use `.indexOf('12:30')` not exact string match

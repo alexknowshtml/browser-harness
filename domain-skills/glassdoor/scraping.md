@@ -29,10 +29,10 @@ required in a real browser). Cookie-only bypass also fails — the `__cf_bm` coo
 
 ## Do this first: open in a new tab, wait for CF to resolve
 
-```python
-new_tab("https://www.glassdoor.com/Reviews/Google-Reviews-E9079.htm")
-wait_for_load()
-wait(5)  # CF managed challenge runs for ~2-4s after readyState=complete
+```ts
+await new_tab("https://www.glassdoor.com/Reviews/Google-Reviews-E9079.htm");
+await wait_for_load();
+await wait(5);  // CF managed challenge runs for ~2-4s after readyState=complete
 ```
 
 `wait(5)` is mandatory. CF's managed challenge executes JS fingerprinting probes after the DOM
@@ -40,14 +40,15 @@ is ready. Extracting before this resolves returns an empty or partial page.
 
 Verify you are past the challenge before extracting:
 
-```python
-title = js("document.title")
-url = page_info()["url"]
-if "Security" in title or "__cf_chl_tk" in url:
-    # CF challenge did not resolve yet — wait longer
-    wait(5)
-    title = js("document.title")
-    assert "Security" not in title, "Still on CF block page"
+```ts
+let title = await js("document.title");
+const url = (await page_info()).url;
+if (title.includes("Security") || url.includes("__cf_chl_tk")) {
+  // CF challenge did not resolve yet — wait longer
+  await wait(5);
+  title = await js("document.title");
+  if (title.includes("Security")) throw new Error("Still on CF block page");
+}
 ```
 
 ---
@@ -75,19 +76,17 @@ Find the employer ID from a search result URL or the company's Glassdoor page UR
 
 Glassdoor renders job cards client-side. Wait 5 seconds after load before extracting.
 
-```python
-import json
-from urllib.parse import quote_plus
+```ts
+// quote_plus equivalent: URLSearchParams encodes spaces as +
+const query = "software engineer";
+await new_tab(`https://www.glassdoor.com/Job/jobs.htm?${new URLSearchParams({ "sc.keyword": query })}`);
+await wait_for_load();
+await wait(5);   // CF challenge + JS render
 
-query = "software engineer"
-new_tab(f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={quote_plus(query)}")
-wait_for_load()
-wait(5)   # CF challenge + JS render
+// Dismiss cookie banner if present (GDPR regions); defined under "Handling the login modal"
+await dismiss_cookie_banner();
 
-# Dismiss cookie banner if present (GDPR regions)
-dismiss_cookie_banner()
-
-jobs = js("""
+const jobs = await js(`
 (function() {
   // Primary selector as of 2026-04
   var cards = document.querySelectorAll('li[data-jobid]');
@@ -117,19 +116,20 @@ jobs = js("""
   }
   return JSON.stringify(out.filter(j => j.title));
 })()
-""")
+`);
 
-results = json.loads(jobs)
-for r in results:
-    print(r["title"], "|", r["company"], "|", r["location"])
+const results = JSON.parse(jobs);
+for (const r of results) {
+  console.log(r.title, "|", r.company, "|", r.location);
+}
 ```
 
 **If `results` is empty:** take a screenshot and check which page you are on. Glassdoor often
 serves a different layout under A/B tests. The screenshot will reveal the actual card selector.
 
-```python
-screenshot("/tmp/glassdoor_jobs.png")
-# Inspect the image, then adjust the querySelectorAll selector above
+```ts
+await screenshot("/tmp/glassdoor_jobs.png");
+// Inspect the image, then adjust the querySelectorAll selector above
 ```
 
 ---
@@ -138,23 +138,20 @@ screenshot("/tmp/glassdoor_jobs.png")
 
 Glassdoor paginates via `&p=N` on the job search URL.
 
-```python
-import json
-from urllib.parse import quote_plus
+```ts
+const query = "data scientist";
+const all_jobs: any[] = [];
 
-query = "data scientist"
-all_jobs = []
+let page = 1;
+for (; page < 4; page++) {   // pages 1-3, ~10 cards each
+    const url = `https://www.glassdoor.com/Job/jobs.htm?${new URLSearchParams({ "sc.keyword": query })}&p=${page}`;
+    await goto(url);
+    await wait_for_load();
+    await wait(page === 1 ? 5 : 3);  // first page needs CF wait; subsequent pages are faster
 
-for page in range(1, 4):   # pages 1-3, ~10 cards each
-    url = f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={quote_plus(query)}&p={page}"
-    goto(url)
-    wait_for_load()
-    wait(5 if page == 1 else 3)  # first page needs CF wait; subsequent pages are faster
+    if (page === 1) await dismiss_cookie_banner();
 
-    if page == 1:
-        dismiss_cookie_banner()
-
-    batch_json = js("""
+    const batch_json = await js(`
     (function() {
       var cards = document.querySelectorAll('li[data-jobid], [class*="JobsList_jobListItem"]');
       var out = [];
@@ -177,14 +174,14 @@ for page in range(1, 4):   # pages 1-3, ~10 cards each
       }
       return JSON.stringify(out.filter(j => j.title));
     })()
-    """)
+    `);
 
-    batch = json.loads(batch_json)
-    if not batch:
-        break   # no more results
-    all_jobs.extend(batch)
+    const batch = JSON.parse(batch_json);
+    if (!batch.length) break;   // no more results
+    all_jobs.push(...batch);
+}
 
-print(f"Collected {len(all_jobs)} jobs across {page} pages")
+console.log(`Collected ${all_jobs.length} jobs across ${Math.min(page, 3)} pages`);
 ```
 
 ---
@@ -194,33 +191,32 @@ print(f"Collected {len(all_jobs)} jobs across {page} pages")
 Navigate to the company Overview or Reviews page. These pages require login for full content but the
 summary header (overall rating, review count, recommend %) is visible without login.
 
-```python
-import json, re
+```ts
+// Example: Google (employer_id=9079)
+const employer_id = 9079;
+const company_slug = "Google";
 
-# Example: Google (employer_id=9079)
-employer_id = 9079
-company_slug = "Google"
+await goto(`https://www.glassdoor.com/Overview/Working-at-${company_slug}-EI_IE${employer_id}.htm`);
+await wait_for_load();
+await wait(5);   // CF challenge
 
-goto(f"https://www.glassdoor.com/Overview/Working-at-{company_slug}-EI_IE{employer_id}.htm")
-wait_for_load()
-wait(5)   # CF challenge
+// Try __NEXT_DATA__ first — fastest and most complete
+const next_data_raw = await js("document.getElementById('__NEXT_DATA__') ? document.getElementById('__NEXT_DATA__').textContent : null");
 
-# Try __NEXT_DATA__ first — fastest and most complete
-next_data_raw = js("document.getElementById('__NEXT_DATA__') ? document.getElementById('__NEXT_DATA__').textContent : null")
-
-if next_data_raw:
-    nd = json.loads(next_data_raw)
-    # Company data lives under props.pageProps — path varies by page type
-    # Try employer overview path
-    props = nd.get("props", {}).get("pageProps", {})
-    employer = props.get("employer") or props.get("employerOverview")
-    if employer:
-        print("Rating:", employer.get("overallRating"))
-        print("Reviews:", employer.get("reviewCount") or employer.get("numberOfReviews"))
-        print("Name:", employer.get("name") or employer.get("shortName"))
-else:
-    # Fall back to DOM selectors
-    summary = js("""
+if (next_data_raw) {
+    const nd = JSON.parse(next_data_raw);
+    // Company data lives under props.pageProps — path varies by page type
+    // Try employer overview path
+    const props = nd.props?.pageProps ?? {};
+    const employer = props.employer || props.employerOverview;
+    if (employer) {
+        console.log("Rating:", employer.overallRating);
+        console.log("Reviews:", employer.reviewCount || employer.numberOfReviews);
+        console.log("Name:", employer.name || employer.shortName);
+    }
+} else {
+    // Fall back to DOM selectors
+    const summary = await js(`
     (function() {
       var ratingEl  = document.querySelector('[data-test="rating"], .ratingNumber, [class*="ratingNum"]');
       var countEl   = document.querySelector('[data-test="reviewCount"], .reviewCount, [class*="reviewCount"]');
@@ -233,8 +229,9 @@ else:
         recommend: recEl  ? recEl.innerText.trim()    : '',
       });
     })()
-    """)
-    print(json.loads(summary))
+    `);
+    console.log(JSON.parse(summary));
+}
 ```
 
 ---
@@ -244,19 +241,17 @@ else:
 Reviews pages show up to ~10 reviews per page without login. A login modal appears after scrolling.
 Extract before scrolling.
 
-```python
-import json
+```ts
+const employer_id = 9079;
+const company_slug = "Google";
 
-employer_id = 9079
-company_slug = "Google"
+await goto(`https://www.glassdoor.com/Reviews/${company_slug}-Reviews-E${employer_id}.htm`);
+await wait_for_load();
+await wait(5);
 
-goto(f"https://www.glassdoor.com/Reviews/{company_slug}-Reviews-E{employer_id}.htm")
-wait_for_load()
-wait(5)
+await dismiss_cookie_banner();
 
-dismiss_cookie_banner()
-
-reviews = js("""
+const reviews = await js(`
 (function() {
   // Review cards — confirmed selector pattern
   var cards = document.querySelectorAll('[id^="empReview_"], [data-test="review-card"], [class*="ReviewCard"]');
@@ -295,44 +290,42 @@ reviews = js("""
   }
   return JSON.stringify(out);
 })()
-""")
+`);
 
-results = json.loads(reviews)
-for r in results:
-    print(f"{r['stars']}★ | {r['title']} | {r['jobTitle']}")
-    print(f"  + {r['pros'][:100]}")
-    print(f"  - {r['cons'][:100]}")
+const results = JSON.parse(reviews);
+for (const r of results) {
+  console.log(`${r.stars}★ | ${r.title} | ${r.jobTitle}`);
+  console.log(`  + ${r.pros.slice(0, 100)}`);
+  console.log(`  - ${r.cons.slice(0, 100)}`);
+}
 ```
 
 ---
 
 ## Workflow 5: Salary page — extract reported salary data
 
-```python
-import json
-from urllib.parse import quote_plus
+```ts
+// Salary pages use slug + character-count in the URL (n = role_slug.length)
+const role = "software-engineer";
+const n = role.length;  // 17 for "software-engineer"
 
-# Salary pages use slug + character-count in the URL (n = len(role_slug))
-role = "software-engineer"
-n = len(role)  # 17 for "software-engineer"
+await goto(`https://www.glassdoor.com/Salaries/${role}-salary-SRCH_KO0,${n}.htm`);
+await wait_for_load();
+await wait(5);
 
-goto(f"https://www.glassdoor.com/Salaries/{role}-salary-SRCH_KO0,{n}.htm")
-wait_for_load()
-wait(5)
+// Try __NEXT_DATA__ for structured salary data
+const next_data_raw = await js("document.getElementById('__NEXT_DATA__') ? document.getElementById('__NEXT_DATA__').textContent : null");
 
-# Try __NEXT_DATA__ for structured salary data
-next_data_raw = js("document.getElementById('__NEXT_DATA__') ? document.getElementById('__NEXT_DATA__').textContent : null")
+if (next_data_raw) {
+    const nd = JSON.parse(next_data_raw);
+    // Salary data is typically under props.pageProps.salaryData or .salaryEstimate
+    const props = nd.props?.pageProps ?? {};
+    const salary_data = props.salaryData || props.payData;
+    if (salary_data) console.log(JSON.stringify(salary_data, null, 2));
+}
 
-if next_data_raw:
-    nd = json.loads(next_data_raw)
-    # Salary data is typically under props.pageProps.salaryData or .salaryEstimate
-    props = nd.get("props", {}).get("pageProps", {})
-    salary_data = props.get("salaryData") or props.get("payData")
-    if salary_data:
-        print(json.dumps(salary_data, indent=2))
-
-# DOM fallback
-salary_summary = js("""
+// DOM fallback
+const salary_summary = await js(`
 (function() {
   var medianEl = document.querySelector('[data-test="salary-estimate"], [class*="salaryEstimate"], [class*="median"]');
   var rangeEl  = document.querySelector('[data-test="salary-range"],  [class*="salaryRange"]');
@@ -343,8 +336,8 @@ salary_summary = js("""
     count:   countEl  ? countEl.innerText.trim()  : '',
   });
 })()
-""")
-print(json.loads(salary_summary))
+`);
+console.log(JSON.parse(salary_summary));
 ```
 
 ---
@@ -357,10 +350,10 @@ Glassdoor shows a sign-in modal:
 
 Dismiss it before extracting anything that requires scrolling:
 
-```python
-def dismiss_glassdoor_login_modal():
-    """Close the Glassdoor sign-in modal. Safe to call if no modal is present."""
-    closed = js("""
+```ts
+/** Close the Glassdoor sign-in modal. Safe to call if no modal is present. */
+async function dismiss_glassdoor_login_modal() {
+    const closed = await js(`
     (function() {
       var selectors = [
         '[alt="Close"]',
@@ -379,14 +372,14 @@ def dismiss_glassdoor_login_modal():
       }
       return null;
     })()
-    """)
-    if closed:
-        wait(1)
-    return closed
+    `);
+    if (closed) await wait(1);
+    return closed;
+}
 
-def dismiss_cookie_banner():
-    """Dismiss GDPR consent overlay. Safe to call even if no banner is present."""
-    dismissed = js("""
+/** Dismiss GDPR consent overlay. Safe to call even if no banner is present. */
+async function dismiss_cookie_banner() {
+    const dismissed = await js(`
     (function() {
       var selectors = [
         'button[data-test="accept-cookies"]',
@@ -404,10 +397,10 @@ def dismiss_cookie_banner():
       }
       return null;
     })()
-    """)
-    if dismissed:
-        wait(1)
-    return dismissed
+    `);
+    if (dismissed) await wait(1);
+    return dismissed;
+}
 ```
 
 For Reviews/Salary pages: call `dismiss_glassdoor_login_modal()` immediately after the initial
@@ -420,23 +413,26 @@ may itself be outside the viewport.
 
 After `goto()` + `wait(5)`, confirm you are on the real page:
 
-```python
-def glassdoor_is_cf_blocked() -> bool:
-    """True if the CF managed challenge is still running."""
-    title = js("document.title") or ""
-    url   = page_info()["url"]
-    return "Security" in title or "__cf_chl_tk" in url
+```ts
+/** True if the CF managed challenge is still running. */
+async function glassdoor_is_cf_blocked(): Promise<boolean> {
+  const title: string = (await js("document.title")) || "";
+  const url: string = (await page_info()).url;
+  return title.includes("Security") || url.includes("__cf_chl_tk");
+}
 
-# Usage
-goto("https://www.glassdoor.com/Reviews/Google-Reviews-E9079.htm")
-wait_for_load()
-wait(5)
+// Usage
+await goto("https://www.glassdoor.com/Reviews/Google-Reviews-E9079.htm");
+await wait_for_load();
+await wait(5);
 
-if glassdoor_is_cf_blocked():
-    wait(10)   # give CF extra time
-    if glassdoor_is_cf_blocked():
-        screenshot("/tmp/glassdoor_cf_block.png")
-        raise RuntimeError("CF challenge did not resolve — check screenshot")
+if (await glassdoor_is_cf_blocked()) {
+  await wait(10);   // give CF extra time
+  if (await glassdoor_is_cf_blocked()) {
+    await screenshot("/tmp/glassdoor_cf_block.png");
+    throw new Error("CF challenge did not resolve — check screenshot");
+  }
+}
 ```
 
 ---
@@ -446,16 +442,15 @@ if glassdoor_is_cf_blocked():
 Glassdoor uses numeric employer IDs (e.g., Google = 9079, Apple = 1138, Meta = 40772).
 To find the ID for any company:
 
-```python
-from urllib.parse import quote_plus
+```ts
+const company_name = "OpenAI";
+await goto(`https://www.glassdoor.com/Search/results.htm?${new URLSearchParams({ keyword: company_name })}&locT=N`);
+await wait_for_load();
+await wait(5);
 
-company_name = "OpenAI"
-goto(f"https://www.glassdoor.com/Search/results.htm?keyword={quote_plus(company_name)}&locT=N")
-wait_for_load()
-wait(5)
-
-# Extract company cards from search results
-companies = js("""
+// Extract company cards from search results
+// String.raw keeps the \d regex escape intact for the page
+const companies = await js(String.raw`
 (function() {
   var cards = document.querySelectorAll('[data-test="employer-card"], [class*="EmployerCard"], [class*="employer-card"]');
   var out = [];
@@ -476,11 +471,11 @@ companies = js("""
   }
   return JSON.stringify(out);
 })()
-""")
+`);
 
-import json
-for c in json.loads(companies):
-    print(c["empId"], c["name"], c["href"][:60])
+for (const c of JSON.parse(companies)) {
+  console.log(c.empId, c.name, c.href.slice(0, 60));
+}
 ```
 
 ---
@@ -522,7 +517,7 @@ for c in json.loads(companies):
   — use `wait(8)` between those.
 
 - **Salary URL requires character-count parameter.** The `SRCH_KO0,{n}` fragment encodes
-  `0` (start of role name) and `n` (end, i.e., `len(role_slug)`). For `"software-engineer"` (17
+  `0` (start of role name) and `n` (end, i.e., `role_slug.length`). For `"software-engineer"` (17
   chars): `SRCH_KO0,17`. Wrong count returns a 404.
 
 - **`locKeyword` vs `locId` for location filter.** `locKeyword=San+Francisco` works without

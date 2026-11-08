@@ -12,65 +12,55 @@ Trustpilot is a Next.js SSR app. Every company review page embeds the full data 
 `<script id="__NEXT_DATA__">` JSON block — no browser needed. This includes the business unit
 metadata, all 20 reviews for the current page, pagination info, and rating distribution.
 
-```python
-import re, json
-from helpers import http_get
+```ts
+// Fetch one page of reviews for a company domain.
+// Returns [business_unit, reviews, pagination, rating_distribution].
+// Returns [null, [], {}, {}] if page is beyond the cap or no data.
+async function get_trustpilot_page(domain: string, page = 1, stars: number | null = null, languages = "en", verified = false) {
+  let url = `https://www.trustpilot.com/review/${domain}?languages=${languages}&page=${page}`;
+  if (stars) url += `&stars=${stars}`;
+  if (verified) url += "&verified=true";
 
-def get_trustpilot_page(domain, page=1, stars=None, languages='en', verified=False):
-    """
-    Fetch one page of reviews for a company domain.
-    Returns (business_unit, reviews, pagination, rating_distribution).
-    Returns (None, [], {}, {}) if page is beyond the cap or no data.
-    """
-    url = f"https://www.trustpilot.com/review/{domain}?languages={languages}&page={page}"
-    if stars:
-        url += f"&stars={stars}"
-    if verified:
-        url += "&verified=true"
+  const html = await http_get(url);
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/s);
+  if (!m) return [null, [], {}, {}] as const;
 
-    html = http_get(url)
-    m = re.search(
-        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-        html, re.DOTALL
-    )
-    if not m:
-        return None, [], {}, {}
+  const data = JSON.parse(m[1]);
+  const pp = data.props.pageProps;
+  const bu = pp.businessUnit;
+  const filters = pp.filters || {};
+  const pagination = filters.pagination ?? {};
+  const ratings = filters.reviewStatistics?.ratings ?? {};
+  const reviews: any[] = pp.reviews ?? [];
 
-    data = json.loads(m.group(1))
-    pp = data['props']['pageProps']
-    bu = pp['businessUnit']
-    filters = pp.get('filters') or {}
-    pagination = filters.get('pagination', {})
-    ratings = filters.get('reviewStatistics', {}).get('ratings', {})
-    reviews = pp.get('reviews', [])
-
-    return bu, reviews, pagination, ratings
+  return [bu, reviews, pagination, ratings] as const;
+}
 ```
 
 ---
 
 ## Business Unit (Company) Metadata
 
-```python
-bu, reviews, pagination, ratings = get_trustpilot_page("amazon.com")
+```ts
+const [bu, reviews, pagination, ratings] = await get_trustpilot_page("amazon.com");
 
-# Confirmed fields (tested 2026-04-18):
-bu['id']               # '46ad346800006400050092d0'  — stable MongoDB ObjectId
-bu['displayName']      # 'Amazon'
-bu['identifyingName']  # 'www.amazon.com'
-bu['trustScore']       # 1.7  (float, 1.0–5.0)
-bu['stars']            # 1.5  (display stars: 1, 1.5, 2, 2.5 … 5)
-bu['numberOfReviews']  # 45228  — total across all languages
-bu['websiteUrl']       # 'https://www.amazon.com'
-bu['isClaimed']        # True/False
-bu['isClosed']         # True/False
-bu['isCollectingReviews']  # True/False
+// Confirmed fields (tested 2026-04-18):
+bu.id;                  // '46ad346800006400050092d0'  — stable MongoDB ObjectId
+bu.displayName;         // 'Amazon'
+bu.identifyingName;     // 'www.amazon.com'
+bu.trustScore;          // 1.7  (float, 1.0–5.0)
+bu.stars;               // 1.5  (display stars: 1, 1.5, 2, 2.5 … 5)
+bu.numberOfReviews;     // 45228  — total across all languages
+bu.websiteUrl;          // 'https://www.amazon.com'
+bu.isClaimed;           // true/false
+bu.isClosed;            // true/false
+bu.isCollectingReviews; // true/false
 
-# Rating distribution (from filters.reviewStatistics.ratings):
-ratings  # {'total': 45228, 'one': 29718, 'two': 2701, 'three': 1759, 'four': 2367, 'five': 8683}
+// Rating distribution (from filters.reviewStatistics.ratings):
+ratings; // {total: 45228, one: 29718, two: 2701, three: 1759, four: 2367, five: 8683}
 
-# Pagination (filtered count, default is English only):
-pagination  # {'currentPage': 1, 'perPage': 20, 'totalCount': 28039, 'totalPages': 1402}
+// Pagination (filtered count, default is English only):
+pagination; // {currentPage: 1, perPage: 20, totalCount: 28039, totalPages: 1402}
 ```
 
 ---
@@ -79,51 +69,51 @@ pagination  # {'currentPage': 1, 'perPage': 20, 'totalCount': 28039, 'totalPages
 
 Each review in the `reviews` list has these confirmed fields:
 
-```python
-review = {
-    'id':      '69e3103e09f46d6b5910f3c1',  # hex ObjectId, unique
-    'rating':  1,                             # int 1–5
-    'title':   'UNDELIVERABLE',
-    'text':    'UNDELIVERABLE\nThis is the only explanation...',
-    'language': 'en',
-    'likes':   0,                             # upvote count
-    'source':  'Organic',                     # 'Organic' or 'Invitation'
-    'filtered': False,
-    'isPending': False,
+```ts
+const review = {
+  id: "69e3103e09f46d6b5910f3c1", // hex ObjectId, unique
+  rating: 1,                      // int 1–5
+  title: "UNDELIVERABLE",
+  text: "UNDELIVERABLE\nThis is the only explanation...",
+  language: "en",
+  likes: 0,                       // upvote count
+  source: "Organic",              // 'Organic' or 'Invitation'
+  filtered: false,
+  isPending: false,
 
-    'dates': {
-        'experiencedDate': '2026-03-29T00:00:00.000Z',  # when they used the service
-        'publishedDate':   '2026-04-18T07:01:50.000Z',  # when review was posted
-        'updatedDate':     None,
-        'submittedDate':   None,
+  dates: {
+    experiencedDate: "2026-03-29T00:00:00.000Z", // when they used the service
+    publishedDate: "2026-04-18T07:01:50.000Z",   // when review was posted
+    updatedDate: null,
+    submittedDate: null,
+  },
+
+  consumer: {
+    id: "5cafe2feb158a8533b443467",
+    displayName: "Baldy Bloke",
+    imageUrl: "https://user-images.trustpilot.com/...",
+    numberOfReviews: 17,
+    countryCode: "GB",
+    hasImage: true,
+    isVerified: false,
+  },
+
+  labels: {
+    verification: {
+      isVerified: false,
+      verificationLevel: "not-verified", // or 'verified'
+      reviewSourceName: "Organic",
+      verificationSource: "invitation",
+      createdDateTime: "2026-04-18T07:01:50.000Z",
+      hasDachExclusion: false,
     },
+    merged: null,
+  },
 
-    'consumer': {
-        'id':              '5cafe2feb158a8533b443467',
-        'displayName':     'Baldy Bloke',
-        'imageUrl':        'https://user-images.trustpilot.com/...',
-        'numberOfReviews': 17,
-        'countryCode':     'GB',
-        'hasImage':        True,
-        'isVerified':      False,
-    },
-
-    'labels': {
-        'verification': {
-            'isVerified':        False,
-            'verificationLevel': 'not-verified',   # or 'verified'
-            'reviewSourceName':  'Organic',
-            'verificationSource': 'invitation',
-            'createdDateTime':   '2026-04-18T07:01:50.000Z',
-            'hasDachExclusion':  False,
-        },
-        'merged': None,
-    },
-
-    'reply': None,           # or {'message': '...', 'publishedDate': '...', 'updatedDate': None}
-    'location': None,        # populated for multi-location businesses
-    'productReviews': [],    # non-empty for product-level reviews
-}
+  reply: null,         // or {message: '...', publishedDate: '...', updatedDate: null}
+  location: null,      // populated for multi-location businesses
+  productReviews: [],  // non-empty for product-level reviews
+};
 ```
 
 ---
@@ -134,53 +124,42 @@ review = {
 This cap applies per filter combination, so `stars=1` gives 200 reviews, `stars=2` gives another
 200, etc.
 
-```python
-import re, json, time
-from helpers import http_get
+```ts
+// Collect up to max_pages*20 = 200 reviews. Returns list of review objects.
+// stars: 1-5 to filter by rating (null = all)
+// languages: 'en' (default), 'all', or ISO code like 'de'
+// delay: seconds between requests (0.5 is safe; tested 5 rapid reqs with no block)
+async function collect_reviews(domain: string, { stars = null as number | null, languages = "en", max_pages = 10, delay = 0.5 } = {}) {
+  const base = `https://www.trustpilot.com/review/${domain}`;
+  let params = `?languages=${languages}`;
+  if (stars) params += `&stars=${stars}`;
 
-def collect_reviews(domain, stars=None, languages='en', max_pages=10, delay=0.5):
-    """
-    Collect up to max_pages*20 = 200 reviews. Returns list of review dicts.
-    stars: 1-5 to filter by rating (None = all)
-    languages: 'en' (default), 'all', or ISO code like 'de'
-    delay: seconds between requests (0.5 is safe; tested 5 rapid reqs with no block)
-    """
-    base = f"https://www.trustpilot.com/review/{domain}"
-    params = f"?languages={languages}"
-    if stars:
-        params += f"&stars={stars}"
+  const all_reviews: any[] = [];
+  const seen_ids = new Set<string>();
 
-    all_reviews = []
-    seen_ids = set()
+  for (let page = 1; page <= max_pages; page++) {
+    const url = `${base}${params}&page=${page}`;
+    const html = await http_get(url);
+    const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/s);
+    if (!m) break;
+    const data = JSON.parse(m[1]);
+    const reviews: any[] = data.props.pageProps.reviews ?? [];
+    if (!reviews.length) break; // hit the page 10 cap or truly no more reviews
 
-    for page in range(1, max_pages + 1):
-        url = f"{base}{params}&page={page}"
-        html = http_get(url)
-        m = re.search(
-            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-            html, re.DOTALL
-        )
-        if not m:
-            break
-        data = json.loads(m.group(1))
-        reviews = data['props']['pageProps'].get('reviews', [])
-        if not reviews:
-            break   # hit the page 10 cap or truly no more reviews
+    const fresh = reviews.filter((r) => !seen_ids.has(r.id));
+    for (const r of reviews) seen_ids.add(r.id);
+    all_reviews.push(...fresh);
 
-        new = [r for r in reviews if r['id'] not in seen_ids]
-        seen_ids.update(r['id'] for r in reviews)
-        all_reviews.extend(new)
+    if (page < max_pages) await wait(delay);
+  }
 
-        if page < max_pages:
-            time.sleep(delay)
+  return all_reviews;
+}
 
-    return all_reviews
-
-
-# Usage — 200 reviews per call:
-reviews = collect_reviews("shopify.com")               # English only, all ratings
-reviews_1star = collect_reviews("amazon.com", stars=1) # 200 x 1-star reviews
-reviews_all = collect_reviews("stripe.com", languages='all')  # all languages
+// Usage — 200 reviews per call:
+const reviews = await collect_reviews("shopify.com");                  // English only, all ratings
+const reviews_1star = await collect_reviews("amazon.com", { stars: 1 }); // 200 x 1-star reviews
+const reviews_all = await collect_reviews("stripe.com", { languages: "all" }); // all languages
 ```
 
 ### Maximize unique reviews by sweeping all star ratings
@@ -188,13 +167,15 @@ reviews_all = collect_reviews("stripe.com", languages='all')  # all languages
 Since each star filter gives an independent 200-review window, you can collect up to 1,000
 reviews per company (pages are deduplicated across filters):
 
-```python
-all_reviews = {}
-for stars in range(1, 6):
-    for r in collect_reviews("amazon.com", stars=stars, delay=0.5):
-        all_reviews[r['id']] = r
+```ts
+const all_reviews: Record<string, any> = {};
+for (let stars = 1; stars <= 5; stars++) {
+  for (const r of await collect_reviews("amazon.com", { stars, delay: 0.5 })) {
+    all_reviews[r.id] = r;
+  }
+}
 
-print(f"Total unique reviews: {len(all_reviews)}")
+console.log(`Total unique reviews: ${Object.keys(all_reviews).length}`);
 ```
 
 ---
@@ -216,17 +197,17 @@ All filter params are appended to the base URL `https://www.trustpilot.com/revie
 
 ## Pagination Object
 
-```python
-# From filters.pagination (present on pages 1–10 when data exists):
-pagination = {
-    'currentPage': 1,
-    'perPage':     20,
-    'totalCount':  28039,   # filtered count (e.g. English only)
-    'totalPages':  1402,    # math: ceil(totalCount / 20)
-}
+```ts
+// From filters.pagination (present on pages 1–10 when data exists):
+const pagination = {
+  currentPage: 1,
+  perPage: 20,
+  totalCount: 28039, // filtered count (e.g. English only)
+  totalPages: 1402,  // math: ceil(totalCount / 20)
+};
 
-# NOTE: totalPages can be 1402 but you can only access pages 1–10 (200 reviews).
-# On page 11+ the reviews list is empty and pagination is absent.
+// NOTE: totalPages can be 1402 but you can only access pages 1–10 (200 reviews).
+// On page 11+ the reviews list is empty and pagination is absent.
 ```
 
 ---
@@ -274,7 +255,7 @@ Consumer API, so if you have an API key, you can use it directly without a separ
    in the JSON but the reviews returned are always `recency`-sorted. Sort only takes effect
    via browser-side JS navigation.
 
-4. **Verified filter is narrow**: Amazon has 45,228 reviews but only 21 are `isVerified=True`
+4. **Verified filter is narrow**: Amazon has 45,228 reviews but only 21 are `isVerified=true`
    (verificationLevel = 'verified'). Most reviews are organic/not-verified. Page 1 of
    `verified=true` shows a misleading `totalCount=28039` — page 2 corrects to `totalCount=21`.
 
@@ -296,80 +277,66 @@ Consumer API, so if you have an API key, you can use it directly without a separ
 
 ## Complete One-Shot Example
 
-```python
-import re, json, time
-from helpers import http_get
+```ts
+// Scrape up to max_unique reviews. Returns [company_info, reviews_list].
+// With max_unique=1000, sweeps all 5 star ratings to maximize coverage.
+async function scrape_trustpilot(domain: string, max_unique = 200) {
+  async function _fetch_page(domain: string, page: number, stars: number | null = null, languages = "en"): Promise<[any, any[]]> {
+    let url = `https://www.trustpilot.com/review/${domain}?languages=${languages}&page=${page}`;
+    if (stars) url += `&stars=${stars}`;
+    const html = await http_get(url);
+    const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/s);
+    if (!m) return [null, []];
+    const d = JSON.parse(m[1]);
+    const pp = d.props.pageProps;
+    return [pp.businessUnit, pp.reviews ?? []];
+  }
 
-def scrape_trustpilot(domain, max_unique=200):
-    """
-    Scrape up to max_unique reviews. Returns (company_info, reviews_list).
-    With max_unique=1000, sweeps all 5 star ratings to maximize coverage.
-    """
-    def _fetch_page(domain, page, stars=None, languages='en'):
-        url = f"https://www.trustpilot.com/review/{domain}?languages={languages}&page={page}"
-        if stars:
-            url += f"&stars={stars}"
-        html = http_get(url)
-        m = re.search(
-            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-            html, re.DOTALL
-        )
-        if not m:
-            return None, []
-        d = json.loads(m.group(1))
-        pp = d['props']['pageProps']
-        return pp['businessUnit'], pp.get('reviews', [])
+  const all_reviews = new Map<string, any>();
 
-    company_info = None
-    all_reviews = {}
+  // First page to get company info
+  let [bu, reviews] = await _fetch_page(domain, 1);
+  const company_info = {
+    id: bu.id,
+    name: bu.displayName,
+    domain: bu.identifyingName,
+    trust_score: bu.trustScore,
+    stars: bu.stars,
+    total_reviews: bu.numberOfReviews,
+    is_claimed: bu.isClaimed,
+  };
+  for (const r of reviews) all_reviews.set(r.id, r);
 
-    # First page to get company info
-    bu, reviews = _fetch_page(domain, 1)
-    company_info = {
-        'id':           bu['id'],
-        'name':         bu['displayName'],
-        'domain':       bu['identifyingName'],
-        'trust_score':  bu['trustScore'],
-        'stars':        bu['stars'],
-        'total_reviews': bu['numberOfReviews'],
-        'is_claimed':   bu['isClaimed'],
+  if (max_unique <= 20) return [company_info, [...all_reviews.values()]] as const;
+
+  // Pages 2–10 (no star filter)
+  for (let page = 2; page <= 10; page++) {
+    if (all_reviews.size >= max_unique) break;
+    [, reviews] = await _fetch_page(domain, page);
+    if (!reviews.length) break;
+    for (const r of reviews) all_reviews.set(r.id, r);
+    await wait(0.5);
+  }
+
+  // If we want more, sweep by star rating
+  if (all_reviews.size < max_unique && max_unique > 200) {
+    for (let stars = 1; stars <= 5; stars++) {
+      for (let page = 1; page <= 10; page++) {
+        if (all_reviews.size >= max_unique) break;
+        [, reviews] = await _fetch_page(domain, page, stars);
+        if (!reviews.length) break;
+        for (const r of reviews) all_reviews.set(r.id, r);
+        await wait(0.5);
+      }
     }
-    for r in reviews:
-        all_reviews[r['id']] = r
+  }
 
-    if max_unique <= 20:
-        return company_info, list(all_reviews.values())
+  return [company_info, [...all_reviews.values()].slice(0, max_unique)] as const;
+}
 
-    # Pages 2–10 (no star filter)
-    for page in range(2, 11):
-        if len(all_reviews) >= max_unique:
-            break
-        _, reviews = _fetch_page(domain, page)
-        if not reviews:
-            break
-        for r in reviews:
-            all_reviews[r['id']] = r
-        time.sleep(0.5)
-
-    # If we want more, sweep by star rating
-    if len(all_reviews) < max_unique and max_unique > 200:
-        for stars in range(1, 6):
-            for page in range(1, 11):
-                if len(all_reviews) >= max_unique:
-                    break
-                _, reviews = _fetch_page(domain, page, stars=stars)
-                if not reviews:
-                    break
-                for r in reviews:
-                    all_reviews[r['id']] = r
-                time.sleep(0.5)
-
-    return company_info, list(all_reviews.values())[:max_unique]
-
-
-# Run it:
-company, reviews = scrape_trustpilot("shopify.com", max_unique=200)
-print(f"{company['name']} — TrustScore {company['trust_score']} — {company['total_reviews']} total reviews")
-print(f"Collected: {len(reviews)} reviews")
-print(f"Sample: [{reviews[0]['rating']}★] {reviews[0]['title'][:60]}")
+// Run it:
+const [company, reviews] = await scrape_trustpilot("shopify.com", 200);
+console.log(`${company.name} — TrustScore ${company.trust_score} — ${company.total_reviews} total reviews`);
+console.log(`Collected: ${reviews.length} reviews`);
+console.log(`Sample: [${reviews[0].rating}★] ${reviews[0].title.slice(0, 60)}`);
 ```

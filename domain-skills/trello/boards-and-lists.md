@@ -42,7 +42,7 @@ matches the visible column count.
   will be `.../u/<username>/boards`. Don't hard-code the username;
   read it back from `page_info()['url']` if you need it.
 - On initial load the board's lists can take ~1-2 s to render after
-  `wait_for_load()` returns. A brief `time.sleep(2)` before scraping is
+  `wait_for_load()` returns. A brief `await wait(2)` before scraping is
   reliable; alternatively, wait for `[data-testid="list"]` to be
   present with a count > 0.
 
@@ -77,7 +77,7 @@ matches the visible column count.
   })))()
 ```
 
-Wrap in `js(...)` + `json.loads()` and you have structured board data
+Wrap in `await js(...)` + `JSON.parse()` and you have structured board data
 in one round trip.
 
 ## What NOT to capture here

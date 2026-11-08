@@ -8,42 +8,41 @@ Field-tested against metacritic.com on 2026-04-18. All code blocks validated wit
 
 Metacritic's internal backend API is publicly accessible with a stable key embedded in every page. It covers games, movies, and TV shows.
 
-```python
-import json
+```ts
+const API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
 
-API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
+async function get_game_scores(slug: string) {
+  // slug = URL slug e.g. 'elden-ring', 'the-last-of-us'
+  const base = "https://backend.metacritic.com"
+  const product = JSON.parse(await http_get(
+    `${base}/games/metacritic/${slug}/web`
+    + `?componentName=product&componentType=Product&apiKey=${API_KEY}`
+  ))
+  const user_stats = JSON.parse(await http_get(
+    `${base}/reviews/metacritic/user/games/${slug}/stats/web`
+    + `?componentName=user-score-summary&componentType=ScoreSummary&apiKey=${API_KEY}`
+  ))
+  const item = product.data.item
+  const crit = item.criticScoreSummary
+  const user = user_stats.data.item
+  return {
+    title: item.title,
+    platform: item.platform,              // lead platform
+    platforms: item.platforms,            // list with per-platform scores
+    metascore: crit.score,                // int 0–100 or null
+    critic_reviews: crit.reviewCount,     // int
+    critic_sentiment: crit.sentiment,     // e.g. "Universal acclaim"
+    user_score: user.score,               // float 0.0–10.0 or null
+    user_reviews: user.reviewCount,       // int
+    user_sentiment: user.sentiment,
+    release_date: item.releaseDate,       // "YYYY-MM-DD"
+  }
+}
 
-def get_game_scores(slug):
-    """slug = URL slug e.g. 'elden-ring', 'the-last-of-us'"""
-    base = f"https://backend.metacritic.com"
-    product = json.loads(http_get(
-        f"{base}/games/metacritic/{slug}/web"
-        f"?componentName=product&componentType=Product&apiKey={API_KEY}"
-    ))
-    user_stats = json.loads(http_get(
-        f"{base}/reviews/metacritic/user/games/{slug}/stats/web"
-        f"?componentName=user-score-summary&componentType=ScoreSummary&apiKey={API_KEY}"
-    ))
-    item = product["data"]["item"]
-    crit = item["criticScoreSummary"]
-    user = user_stats["data"]["item"]
-    return {
-        "title": item["title"],
-        "platform": item["platform"],           # lead platform
-        "platforms": item["platforms"],          # list with per-platform scores
-        "metascore": crit["score"],              # int 0–100 or None
-        "critic_reviews": crit["reviewCount"],  # int
-        "critic_sentiment": crit["sentiment"],   # e.g. "Universal acclaim"
-        "user_score": user["score"],             # float 0.0–10.0 or None
-        "user_reviews": user["reviewCount"],     # int
-        "user_sentiment": user["sentiment"],
-        "release_date": item["releaseDate"],     # "YYYY-MM-DD"
-    }
-
-print(get_game_scores("the-last-of-us"))
-# {'title': 'The Last of Us', 'platform': 'PlayStation 3',
-#  'metascore': 95, 'critic_reviews': 98,
-#  'user_score': 9.2, 'user_reviews': 17207, ...}
+console.log(JSON.stringify(await get_game_scores("the-last-of-us")))
+// {"title":"The Last of Us","platform":"PlayStation 3",
+//  "metascore":95,"critic_reviews":98,
+//  "user_score":9.2,"user_reviews":17207, ...}
 ```
 
 Use the browser **only** if you need music pages — `metacritic.com/music/*` returns HTTP 403 to `http_get` (Cloudflare blocks those routes). Games, movies, and TV all work with plain HTTP.
@@ -54,26 +53,21 @@ Use the browser **only** if you need music pages — `metacritic.com/music/*` re
 
 If you only need the Metascore and critic review count and don't need the user score, JSON-LD is the single-call option — no API key, no separate request:
 
-```python
-import json, re
+```ts
+const url = "https://www.metacritic.com/game/elden-ring/"   // or /movie/ or /tv/
+const html = await http_get(url)
 
-url = "https://www.metacritic.com/game/elden-ring/"   # or /movie/ or /tv/
-html = http_get(url)
+const block = [...html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>(.*?)<\/script>/gs)][0][1]
+const ld = JSON.parse(block)
 
-block = re.findall(
-    r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>',
-    html, re.DOTALL
-)[0]
-ld = json.loads(block)
-
-agg = ld["aggregateRating"]
-print(ld["name"])                   # "Elden Ring"
-print(agg["ratingValue"])           # 96  (metascore)
-print(agg["reviewCount"])           # 93  (critic reviews count)
-print(ld.get("gamePlatform"))       # ['Xbox One', 'PC', 'PlayStation 4', 'Xbox Series X', 'PlayStation 5']
-print(ld.get("genre"))              # "Action RPG"
-print(ld.get("contentRating"))      # "M"
-print(ld.get("datePublished"))      # "2022-02-25"
+const agg = ld.aggregateRating
+console.log(ld.name)                   // "Elden Ring"
+console.log(agg.ratingValue)           // 96  (metascore)
+console.log(agg.reviewCount)           // 93  (critic reviews count)
+console.log(ld.gamePlatform)           // ['Xbox One', 'PC', 'PlayStation 4', 'Xbox Series X', 'PlayStation 5']
+console.log(ld.genre)                  // "Action RPG"
+console.log(ld.contentRating)          // "M"
+console.log(ld.datePublished)          // "2022-02-25"
 ```
 
 **JSON-LD limitations:**
@@ -87,172 +81,154 @@ print(ld.get("datePublished"))      # "2022-02-25"
 
 ### Get scores for a single title (backend API)
 
-```python
-import json
+```ts
+const API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
+const BASE = "https://backend.metacritic.com"
 
-API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
-BASE = "https://backend.metacritic.com"
+// Games
+async function game_scores(slug: string) {
+  const p = JSON.parse(await http_get(`${BASE}/games/metacritic/${slug}/web?componentName=product&componentType=Product&apiKey=${API_KEY}`))
+  const u = JSON.parse(await http_get(`${BASE}/reviews/metacritic/user/games/${slug}/stats/web?componentName=user-score-summary&componentType=ScoreSummary&apiKey=${API_KEY}`))
+  const c = p.data.item.criticScoreSummary
+  const us = u.data.item
+  return { metascore: c.score, critic_reviews: c.reviewCount,
+           user_score: us.score, user_reviews: us.reviewCount }
+}
 
-# Games
-def game_scores(slug):
-    p = json.loads(http_get(f"{BASE}/games/metacritic/{slug}/web?componentName=product&componentType=Product&apiKey={API_KEY}"))
-    u = json.loads(http_get(f"{BASE}/reviews/metacritic/user/games/{slug}/stats/web?componentName=user-score-summary&componentType=ScoreSummary&apiKey={API_KEY}"))
-    c = p["data"]["item"]["criticScoreSummary"]
-    us = u["data"]["item"]
-    return {"metascore": c["score"], "critic_reviews": c["reviewCount"],
-            "user_score": us["score"], "user_reviews": us["reviewCount"]}
+// Movies
+async function movie_scores(slug: string) {
+  const p = JSON.parse(await http_get(`${BASE}/movies/metacritic/${slug}/web?componentName=product&componentType=Product&apiKey=${API_KEY}`))
+  const u = JSON.parse(await http_get(`${BASE}/reviews/metacritic/user/movies/${slug}/stats/web?componentName=user-score-summary&componentType=ScoreSummary&apiKey=${API_KEY}`))
+  const c = p.data.item.criticScoreSummary
+  const us = u.data.item
+  return { metascore: c.score, critic_reviews: c.reviewCount,
+           user_score: us.score, user_reviews: us.reviewCount }
+}
 
-# Movies
-def movie_scores(slug):
-    p = json.loads(http_get(f"{BASE}/movies/metacritic/{slug}/web?componentName=product&componentType=Product&apiKey={API_KEY}"))
-    u = json.loads(http_get(f"{BASE}/reviews/metacritic/user/movies/{slug}/stats/web?componentName=user-score-summary&componentType=ScoreSummary&apiKey={API_KEY}"))
-    c = p["data"]["item"]["criticScoreSummary"]
-    us = u["data"]["item"]
-    return {"metascore": c["score"], "critic_reviews": c["reviewCount"],
-            "user_score": us["score"], "user_reviews": us["reviewCount"]}
+// TV shows
+async function show_scores(slug: string) {
+  const p = JSON.parse(await http_get(`${BASE}/shows/metacritic/${slug}/web?componentName=product&componentType=Product&apiKey=${API_KEY}`))
+  const u = JSON.parse(await http_get(`${BASE}/reviews/metacritic/user/shows/${slug}/stats/web?componentName=user-score-summary&componentType=ScoreSummary&apiKey=${API_KEY}`))
+  const c = p.data.item.criticScoreSummary
+  const us = u.data.item
+  return { metascore: c.score, critic_reviews: c.reviewCount,
+           user_score: us.score, user_reviews: us.reviewCount }
+}
 
-# TV shows
-def show_scores(slug):
-    p = json.loads(http_get(f"{BASE}/shows/metacritic/{slug}/web?componentName=product&componentType=Product&apiKey={API_KEY}"))
-    u = json.loads(http_get(f"{BASE}/reviews/metacritic/user/shows/{slug}/stats/web?componentName=user-score-summary&componentType=ScoreSummary&apiKey={API_KEY}"))
-    c = p["data"]["item"]["criticScoreSummary"]
-    us = u["data"]["item"]
-    return {"metascore": c["score"], "critic_reviews": c["reviewCount"],
-            "user_score": us["score"], "user_reviews": us["reviewCount"]}
-
-# Verified results:
-print(game_scores("the-last-of-us"))
-# {'metascore': 95, 'critic_reviews': 98, 'user_score': 9.2, 'user_reviews': 17207}
-print(movie_scores("the-godfather"))
-# {'metascore': 100, 'critic_reviews': 16, 'user_score': 9.2, 'user_reviews': 4450}
-print(show_scores("breaking-bad"))
-# {'metascore': 87, 'critic_reviews': 98, 'user_score': 9.4, 'user_reviews': 19070}
+// Verified results:
+console.log(JSON.stringify(await game_scores("the-last-of-us")))
+// {"metascore":95,"critic_reviews":98,"user_score":9.2,"user_reviews":17207}
+console.log(JSON.stringify(await movie_scores("the-godfather")))
+// {"metascore":100,"critic_reviews":16,"user_score":9.2,"user_reviews":4450}
+console.log(JSON.stringify(await show_scores("breaking-bad")))
+// {"metascore":87,"critic_reviews":98,"user_score":9.4,"user_reviews":19070}
 ```
 
 ### Parallel fetching (multiple titles at once)
 
 10 API calls in 0.68s with 5 workers — no rate-limit errors:
 
-```python
-import json
-from concurrent.futures import ThreadPoolExecutor
-import urllib.request, gzip
+```ts
+const API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
 
-API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
+// http_get already sends UA Mozilla/5.0 and handles gzip.
+const _fetch = async (url: string) => JSON.parse(await http_get(url, null, 15))
 
-def _fetch(url):
-    h = {"User-Agent": "Mozilla/5.0", "Accept-Encoding": "gzip"}
-    with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=15) as r:
-        data = r.read()
-        if r.headers.get("Content-Encoding") == "gzip": data = gzip.decompress(data)
-        return json.loads(data.decode())
+async function batch_game_scores(slugs: string[]) {
+  // Fetch critic+user scores for multiple game slugs in parallel.
+  const BASE = "https://backend.metacritic.com"
+  const AK = `apiKey=${API_KEY}`
 
-def batch_game_scores(slugs, workers=5):
-    """Fetch critic+user scores for multiple game slugs in parallel."""
-    BASE = "https://backend.metacritic.com"
-    AK = f"apiKey={API_KEY}"
+  async function fetch_one(slug: string) {
+    const [c, u] = await Promise.all([
+      _fetch(`${BASE}/reviews/metacritic/critic/games/${slug}/stats/web?componentName=critic-score-summary&componentType=ScoreSummary&${AK}`),
+      _fetch(`${BASE}/reviews/metacritic/user/games/${slug}/stats/web?componentName=user-score-summary&componentType=ScoreSummary&${AK}`),
+    ])
+    const ci = c.data.item
+    const ui = u.data.item
+    return { slug, metascore: ci.score, critic_reviews: ci.reviewCount,
+             user_score: ui.score, user_reviews: ui.reviewCount }
+  }
 
-    def fetch_one(slug):
-        c = _fetch(f"{BASE}/reviews/metacritic/critic/games/{slug}/stats/web?componentName=critic-score-summary&componentType=ScoreSummary&{AK}")
-        u = _fetch(f"{BASE}/reviews/metacritic/user/games/{slug}/stats/web?componentName=user-score-summary&componentType=ScoreSummary&{AK}")
-        ci = c["data"]["item"]
-        ui = u["data"]["item"]
-        return {"slug": slug, "metascore": ci["score"], "critic_reviews": ci["reviewCount"],
-                "user_score": ui["score"], "user_reviews": ui["reviewCount"]}
+  return Promise.all(slugs.map(fetch_one))
+}
 
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        return list(ex.map(fetch_one, slugs))
-
-results = batch_game_scores([
-    "the-last-of-us", "elden-ring", "god-of-war",
-    "red-dead-redemption-2", "the-witcher-3-wild-hunt"
+const results = await batch_game_scores([
+  "the-last-of-us", "elden-ring", "god-of-war",
+  "red-dead-redemption-2", "the-witcher-3-wild-hunt",
 ])
-# the-last-of-us: meta=95/98critics, user=9.2/17207
-# elden-ring: meta=96/86critics, user=8.4/23344
-# god-of-war: meta=94/118critics, user=9.0/30439
-# red-dead-redemption-2: meta=97/99critics, user=9.0/35306
-# the-witcher-3-wild-hunt: meta=92/79critics, user=9.1/19370
+// the-last-of-us: meta=95/98critics, user=9.2/17207
+// elden-ring: meta=96/86critics, user=8.4/23344
+// god-of-war: meta=94/118critics, user=9.0/30439
+// red-dead-redemption-2: meta=97/99critics, user=9.0/35306
+// the-witcher-3-wild-hunt: meta=92/79critics, user=9.1/19370
 ```
 
 ### Search by title
 
-```python
-import json, urllib.parse
+```ts
+const API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
 
-API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
+async function search(query: string, media_type: "games" | "movies" | "shows" | null = null, limit = 10) {
+  // media_type: null='all', 'games' (mcoTypeId=13), 'movies' (2), 'shows' (1)
+  // Returns list of {title, type, slug, year, metascore, user_score}
+  const type_map = { games: 13, movies: 2, shows: 1 }
+  const q = encodeURIComponent(query)
+  const type_param = media_type ? `&mcoTypeId=${type_map[media_type]}` : "&mcoTypeId=1%2C2%2C3%2C13"
+  const url =
+    `https://backend.metacritic.com/finder/metacritic/search/${q}/web`
+    + `?offset=0&limit=${limit}&sortBy=META_SCORE&sortDirection=DESC`
+    + `${type_param}&componentName=search&componentType=SearchResult`
+    + `&apiKey=${API_KEY}`
+  const data = JSON.parse(await http_get(url))
+  const items = data.data.items
+  return items.map((i: any) => ({
+    title: i.title,
+    type: i.type,            // "game-title", "movie", "tv-show"
+    slug: i.slug,
+    year: i.premiereYear,
+    metascore: i.criticScoreSummary?.score,
+    user_score: i.userScore, // null in search results (use stats API for this)
+  }))
+}
 
-def search(query, media_type=None, limit=10):
-    """
-    media_type: None='all', 'games' (mcoTypeId=13), 'movies' (2), 'shows' (1)
-    Returns list of {title, type, slug, premiereYear, metascore, user_score}
-    """
-    type_map = {"games": 13, "movies": 2, "shows": 1}
-    q = urllib.parse.quote(query)
-    type_param = f"&mcoTypeId={type_map[media_type]}" if media_type else "&mcoTypeId=1%2C2%2C3%2C13"
-    url = (
-        f"https://backend.metacritic.com/finder/metacritic/search/{q}/web"
-        f"?offset=0&limit={limit}&sortBy=META_SCORE&sortDirection=DESC"
-        f"{type_param}&componentName=search&componentType=SearchResult"
-        f"&apiKey={API_KEY}"
-    )
-    data = json.loads(http_get(url))
-    items = data["data"]["items"]
-    return [
-        {
-            "title": i["title"],
-            "type": i["type"],          # "game-title", "movie", "tv-show"
-            "slug": i["slug"],
-            "year": i.get("premiereYear"),
-            "metascore": i.get("criticScoreSummary", {}).get("score"),
-            "user_score": i.get("userScore"),  # None in search results (use stats API for this)
-        }
-        for i in items
-    ]
-
-results = search("elden ring", media_type="games")
-# [{'title': 'Elden Ring', 'type': 'game-title', 'slug': 'elden-ring', 'year': 2022, 'metascore': 96, ...}]
+const results = await search("elden ring", "games")
+// [{"title":"Elden Ring","type":"game-title","slug":"elden-ring","year":2022,"metascore":96, ...}]
 ```
 
-**Note:** `userScore` is `None` in search results. Call the stats API with the `slug` to get it.
+**Note:** `userScore` is `null` in search results. Call the stats API with the `slug` to get it.
 
 ### Browse/list titles by score
 
-```python
-import json
+```ts
+const API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
 
-API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
+async function browse_games({ sort_by = "-metaScore", year_min = null as number | null, year_max = null as number | null, offset = 0, limit = 24 } = {}) {
+  // sort_by: '-metaScore' | '-releaseDate' | '-popularityCount'
+  // Returns up to `limit` games with criticScoreSummary and userScore.
+  // Total available: ~14,160 games.
+  let params = `sortBy=${sort_by}&mcoTypeId=13&offset=${offset}&limit=${limit}`
+  if (year_min) params += `&releaseYearMin=${year_min}`
+  if (year_max) params += `&releaseYearMax=${year_max}`
+  const url = `https://backend.metacritic.com/finder/metacritic/web?${params}&componentName=finder&componentType=Finder&apiKey=${API_KEY}`
+  const data = JSON.parse(await http_get(url))
+  const total = data.data.totalResults
+  const items = data.data.items
+  return [total, items.map((i: any) => ({
+    title: i.title,
+    slug: i.slug,
+    year: i.premiereYear,
+    metascore: i.criticScoreSummary?.score,
+    critic_reviews: i.criticScoreSummary?.reviewCount,
+    user_score: i.userScore && typeof i.userScore === "object" ? i.userScore.score : i.userScore,
+  }))] as const
+}
 
-def browse_games(sort_by="-metaScore", year_min=None, year_max=None, offset=0, limit=24):
-    """
-    sort_by: '-metaScore' | '-releaseDate' | '-popularityCount'
-    Returns up to `limit` games with criticScoreSummary and userScore.
-    Total available: ~14,160 games.
-    """
-    params = f"sortBy={sort_by}&mcoTypeId=13&offset={offset}&limit={limit}"
-    if year_min: params += f"&releaseYearMin={year_min}"
-    if year_max: params += f"&releaseYearMax={year_max}"
-    url = f"https://backend.metacritic.com/finder/metacritic/web?{params}&componentName=finder&componentType=Finder&apiKey={API_KEY}"
-    data = json.loads(http_get(url))
-    total = data["data"]["totalResults"]
-    items = data["data"]["items"]
-    return total, [
-        {
-            "title": i["title"],
-            "slug": i["slug"],
-            "year": i.get("premiereYear"),
-            "metascore": i.get("criticScoreSummary", {}).get("score"),
-            "critic_reviews": i.get("criticScoreSummary", {}).get("reviewCount"),
-            "user_score": i.get("userScore", {}).get("score") if isinstance(i.get("userScore"), dict) else i.get("userScore"),
-        }
-        for i in items
-    ]
-
-total, games = browse_games(year_min=2023, year_max=2024)
-print(f"{total} games 2023-2024")   # 953
-for g in games[:3]:
-    print(g)
-# {'title': "Baldur's Gate 3", 'year': 2023, 'metascore': 96, 'user_score': 9.2}
-# {'title': 'The Legend of Zelda: Tears of the Kingdom', 'year': 2023, 'metascore': 96, ...}
+const [total, games] = await browse_games({ year_min: 2023, year_max: 2024 })
+console.log(`${total} games 2023-2024`)   // 953
+for (const g of games.slice(0, 3)) console.log(JSON.stringify(g))
+// {"title":"Baldur's Gate 3","year":2023,"metascore":96,"user_score":9.2}
+// {"title":"The Legend of Zelda: Tears of the Kingdom","year":2023,"metascore":96, ...}
 ```
 
 Finder API totals (confirmed 2026-04-18):
@@ -262,152 +238,140 @@ Finder API totals (confirmed 2026-04-18):
 
 ### Get per-platform scores for multi-platform games
 
-```python
-import json
+```ts
+const API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
 
-API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
+async function game_platforms(slug: string) {
+  const url =
+    `https://backend.metacritic.com/games/metacritic/${slug}/web`
+    + `?componentName=product&componentType=Product&apiKey=${API_KEY}`
+  const data = JSON.parse(await http_get(url))
+  const platforms = data.data.item.platforms
+  return platforms.map((p: any) => ({
+    name: p.name,
+    slug: p.slug,
+    is_lead: p.isLeadPlatform,
+    metascore: p.criticScoreSummary.score,        // null if <4 reviews
+    critic_reviews: p.criticScoreSummary.reviewCount,
+    release_date: p.releaseDate,
+  }))
+}
 
-def game_platforms(slug):
-    url = (
-        f"https://backend.metacritic.com/games/metacritic/{slug}/web"
-        f"?componentName=product&componentType=Product&apiKey={API_KEY}"
-    )
-    data = json.loads(http_get(url))
-    platforms = data["data"]["item"]["platforms"]
-    return [
-        {
-            "name": p["name"],
-            "slug": p["slug"],
-            "is_lead": p["isLeadPlatform"],
-            "metascore": p["criticScoreSummary"]["score"],        # None if <4 reviews
-            "critic_reviews": p["criticScoreSummary"]["reviewCount"],
-            "release_date": p["releaseDate"],
-        }
-        for p in platforms
-    ]
-
-print(game_platforms("elden-ring"))
-# [{'name': 'Xbox One', 'slug': 'xbox-one', 'is_lead': False, 'metascore': None, ...},
-#  {'name': 'PC', 'slug': 'pc', 'is_lead': False, 'metascore': 94, 'critic_reviews': 63},
-#  {'name': 'PlayStation 4', 'slug': 'playstation-4', 'is_lead': False, 'metascore': None, 'critic_reviews': 1},
-#  {'name': 'Xbox Series X', 'slug': 'xbox-series-x', 'is_lead': False, 'metascore': 96, 'critic_reviews': 19},
-#  {'name': 'PlayStation 5', 'slug': 'playstation-5', 'is_lead': True, 'metascore': 96, 'critic_reviews': 93}]
+console.log(JSON.stringify(await game_platforms("elden-ring"), null, 2))
+// [{"name":"Xbox One","slug":"xbox-one","is_lead":false,"metascore":null, ...},
+//  {"name":"PC","slug":"pc","is_lead":false,"metascore":94,"critic_reviews":63},
+//  {"name":"PlayStation 4","slug":"playstation-4","is_lead":false,"metascore":null,"critic_reviews":1},
+//  {"name":"Xbox Series X","slug":"xbox-series-x","is_lead":false,"metascore":96,"critic_reviews":19},
+//  {"name":"PlayStation 5","slug":"playstation-5","is_lead":true,"metascore":96,"critic_reviews":93}]
 ```
 
 ### Get critic reviews (paginated)
 
-```python
-import json
+```ts
+const API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
 
-API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
+async function get_critic_reviews(slug: string, { media = "games", offset = 0, limit = 10, sort = "date" } = {}) {
+  // sort: 'date' | 'score' | 'publication'
+  const url =
+    `https://backend.metacritic.com/reviews/metacritic/critic/${media}/${slug}/web`
+    + `?offset=${offset}&limit=${limit}&sort=${sort}`
+    + `&componentName=latest-critic-reviews&componentType=CriticReviewList&apiKey=${API_KEY}`
+  const data = JSON.parse(await http_get(url))
+  const total = data.data.totalResults   // e.g. 98
+  const items = data.data.items
+  return [total, items.map((r: any) => ({
+    score: r.score,                // int 0–100
+    publication: r.publicationName,
+    quote: r.quote,
+    date: r.date,
+    url: r.url,
+  }))] as const
+}
 
-def get_critic_reviews(slug, media="games", offset=0, limit=10, sort="date"):
-    """sort: 'date' | 'score' | 'publication'"""
-    url = (
-        f"https://backend.metacritic.com/reviews/metacritic/critic/{media}/{slug}/web"
-        f"?offset={offset}&limit={limit}&sort={sort}"
-        f"&componentName=latest-critic-reviews&componentType=CriticReviewList&apiKey={API_KEY}"
-    )
-    data = json.loads(http_get(url))
-    total = data["data"]["totalResults"]   # e.g. 98
-    items = data["data"]["items"]
-    return total, [
-        {
-            "score": r["score"],                # int 0–100
-            "publication": r["publicationName"],
-            "quote": r["quote"],
-            "date": r["date"],
-            "url": r.get("url"),
-        }
-        for r in items
-    ]
-
-total, reviews = get_critic_reviews("the-last-of-us", sort="score")
-print(f"{total} critic reviews")   # 98
-print(reviews[0])
-# {'score': 97, 'publication': 'GamingXP', 'quote': 'Flawless in its ambition...', 'date': '...'}
+const [total, reviews] = await get_critic_reviews("the-last-of-us", { sort: "score" })
+console.log(`${total} critic reviews`)   // 98
+console.log(JSON.stringify(reviews[0]))
+// {"score":97,"publication":"GamingXP","quote":"Flawless in its ambition...","date":"..."}
 ```
 
 ### Get user reviews (paginated)
 
-```python
-import json
+```ts
+const API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
 
-API_KEY = "1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u"
+async function get_user_reviews(slug: string, { media = "games", offset = 0, limit = 10, order_by = "score", order_type = "desc" } = {}) {
+  // order_by: 'score' | 'date' | 'helpfulness'
+  const url =
+    `https://backend.metacritic.com/reviews/metacritic/user/${media}/${slug}/web`
+    + `?offset=${offset}&limit=${limit}&orderBy=${order_by}&orderType=${order_type}`
+    + `&componentName=top-user-reviews&componentType=UserReviewList&apiKey=${API_KEY}`
+  const data = JSON.parse(await http_get(url))
+  const total = data.data.totalResults   // e.g. 2983 for The Last of Us
+  const items = data.data.items
+  return [total, items.map((r: any) => ({
+    score: r.score,   // int 0–10
+    quote: r.quote,
+    date: r.date,
+    spoiler: r.spoiler ?? false,
+  }))] as const
+}
 
-def get_user_reviews(slug, media="games", offset=0, limit=10, order_by="score", order_type="desc"):
-    """order_by: 'score' | 'date' | 'helpfulness'"""
-    url = (
-        f"https://backend.metacritic.com/reviews/metacritic/user/{media}/{slug}/web"
-        f"?offset={offset}&limit={limit}&orderBy={order_by}&orderType={order_type}"
-        f"&componentName=top-user-reviews&componentType=UserReviewList&apiKey={API_KEY}"
-    )
-    data = json.loads(http_get(url))
-    total = data["data"]["totalResults"]   # e.g. 2983 for The Last of Us
-    items = data["data"]["items"]
-    return total, [
-        {
-            "score": r["score"],   # int 0–10
-            "quote": r["quote"],
-            "date": r["date"],
-            "spoiler": r.get("spoiler", False),
-        }
-        for r in items
-    ]
-
-total, reviews = get_user_reviews("the-last-of-us")
-print(f"{total} user reviews")   # 2983
+const [total, reviews] = await get_user_reviews("the-last-of-us")
+console.log(`${total} user reviews`)   // 2983
 ```
 
 ### NUXT_DATA extraction (alternative, no API key)
 
 If you need to avoid the backend API (e.g., the API key rotates), the HTML page embeds all score data in `<script id="__NUXT_DATA__">` as a flat pool with integer cross-references. This is more fragile but requires no API key:
 
-```python
-import json, re
+```ts
+const url = "https://www.metacritic.com/game/the-last-of-us/"
+const html = await http_get(url)
 
-url = "https://www.metacritic.com/game/the-last-of-us/"
-html = http_get(url)
-
-pool = json.loads(
-    re.search(r'<script[^>]*id="__NUXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL).group(1)
+const pool: any[] = JSON.parse(
+  html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>(.*?)<\/script>/s)![1]
 )
 
-def deref(pool, idx, depth=0, visited=None):
-    if visited is None: visited = set()
-    if not isinstance(idx, int) or idx in visited or depth > 4: return idx
-    visited.add(idx)
-    val = pool[idx]
-    if isinstance(val, dict):
-        return {k: deref(pool, v, depth+1, visited) if isinstance(v, int) else v for k, v in val.items()}
-    elif isinstance(val, list) and len(val) == 2 and isinstance(val[0], str) and val[0] in ('Ref','Reactive','ShallowReactive','ShallowRef'):
-        return deref(pool, val[1], depth+1, visited)
-    elif isinstance(val, list):
-        return [deref(pool, v, depth+1, visited) if isinstance(v, int) else v for v in val]
-    return val
+const isInt = (x: any) => Number.isInteger(x)
+const isDict = (x: any) => x !== null && typeof x === "object" && !Array.isArray(x)
 
-# Find components
-components_idx = next(
-    pool[i] for i, v in enumerate(pool)
-    if isinstance(v, list) and len(v) > 3 and all(isinstance(x, int) for x in v[:3])
-    and isinstance(pool[v[0]], dict) and 'data' in pool[v[0]] and 'meta' in pool[v[0]]
+function deref(pool: any[], idx: any, depth = 0, visited = new Set<number>()): any {
+  if (!isInt(idx) || visited.has(idx) || depth > 4) return idx
+  visited.add(idx)
+  const val = pool[idx]
+  if (isDict(val)) {
+    return Object.fromEntries(Object.entries(val).map(([k, v]) => [k, isInt(v) ? deref(pool, v, depth + 1, visited) : v]))
+  } else if (Array.isArray(val) && val.length === 2 && typeof val[0] === "string" && ["Ref", "Reactive", "ShallowReactive", "ShallowRef"].includes(val[0])) {
+    return deref(pool, val[1], depth + 1, visited)
+  } else if (Array.isArray(val)) {
+    return val.map((v) => (isInt(v) ? deref(pool, v, depth + 1, visited) : v))
+  }
+  return val
+}
+
+// Find components
+const components_idx = pool.find(
+  (v) => Array.isArray(v) && v.length > 3 && v.slice(0, 3).every(isInt)
+    && isDict(pool[v[0]]) && "data" in pool[v[0]] && "meta" in pool[v[0]]
 )
 
-def find_component(pool, name):
-    for i, val in enumerate(pool):
-        if not isinstance(val, dict) or 'data' not in val or 'meta' not in val: continue
-        meta = pool[val['meta']] if isinstance(val.get('meta'), int) else {}
-        if not isinstance(meta, dict): continue
-        cname = pool[meta.get('componentName')] if isinstance(meta.get('componentName'), int) else ''
-        if cname == name: return deref(pool, val['data'])
-    return None
+function find_component(pool: any[], name: string) {
+  for (const val of pool) {
+    if (!isDict(val) || !("data" in val) || !("meta" in val)) continue
+    const meta = isInt(val.meta) ? pool[val.meta] : {}
+    if (!isDict(meta)) continue
+    const cname = isInt(meta.componentName) ? pool[meta.componentName] : ""
+    if (cname === name) return deref(pool, val.data)
+  }
+  return null
+}
 
-critic = find_component(pool, 'critic-score-summary')
-user = find_component(pool, 'user-score-summary')
-print("Metascore:", critic['item']['score'])        # 95
-print("Critic reviews:", critic['item']['reviewCount'])  # 98
-print("User score:", user['item']['score'])         # 9.2
-print("User reviews:", user['item']['reviewCount']) # 17207
+const critic = find_component(pool, "critic-score-summary")
+const user = find_component(pool, "user-score-summary")
+console.log("Metascore:", critic.item.score)              // 95
+console.log("Critic reviews:", critic.item.reviewCount)   // 98
+console.log("User score:", user.item.score)               // 9.2
+console.log("User reviews:", user.item.reviewCount)       // 17207
 ```
 
 ---
@@ -426,15 +390,14 @@ Metacritic slugs are lowercased, spaces replaced with hyphens, special chars dro
 
 Derive slug from the page URL: everything between the media-type path and the trailing slash.
 
-```python
-import re
+```ts
+function slug_from_url(url: string) {
+  // Works for /game/, /movie/, /tv/
+  const m = url.match(/\/(?:game|movie|tv)\/([^/]+)\//)
+  return m ? m[1] : null
+}
 
-def slug_from_url(url):
-    # Works for /game/, /movie/, /tv/
-    m = re.search(r'/(?:game|movie|tv)/([^/]+)/', url)
-    return m.group(1) if m else None
-
-slug_from_url("https://www.metacritic.com/game/the-last-of-us/")  # "the-last-of-us"
+slug_from_url("https://www.metacritic.com/game/the-last-of-us/")  // "the-last-of-us"
 ```
 
 ---
@@ -454,13 +417,13 @@ slug_from_url("https://www.metacritic.com/game/the-last-of-us/")  # "the-last-of
 
 ## Gotchas
 
-- **API key is embedded in every Metacritic page HTML** — find it by searching for `apiKey=` in `backend.metacritic.com` URLs. The key `1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u` was confirmed active as of 2026-04-18. If it rotates, fetch any Metacritic page and extract it: `re.search(r'apiKey=([A-Za-z0-9]+)', html).group(1)`.
+- **API key is embedded in every Metacritic page HTML** — find it by searching for `apiKey=` in `backend.metacritic.com` URLs. The key `1MOZgmNFxvmljaQR1X9KAij9Mo4xAY3u` was confirmed active as of 2026-04-18. If it rotates, fetch any Metacritic page and extract it: `html.match(/apiKey=([A-Za-z0-9]+)/)[1]`.
 
-- **userScore is None in search results** — the `/finder/metacritic/search/` endpoint returns `userScore: null` for all results. Call the stats API separately with the slug to get user score + review count.
+- **userScore is null in search results** — the `/finder/metacritic/search/` endpoint returns `userScore: null` for all results. Call the stats API separately with the slug to get user score + review count.
 
-- **Metascore None means < 4 reviews** — the backend API returns `score: null` (not 0) when a title has fewer than 4 critic reviews. Always check `if score is not None` before using.
+- **Metascore null means < 4 reviews** — the backend API returns `score: null` (not 0) when a title has fewer than 4 critic reviews. Always check `if (score !== null)` before using.
 
-- **Multi-platform games: JSON-LD shows lead platform score** — for a game on PS5 and Xbox, `aggregateRating.ratingValue` in JSON-LD is the lead platform's score (the platform marked `isLeadPlatform: True` in the backend API). All platforms are listed in `gamePlatform` but without individual scores. Use the product API's `platforms` array for per-platform breakdown.
+- **Multi-platform games: JSON-LD shows lead platform score** — for a game on PS5 and Xbox, `aggregateRating.ratingValue` in JSON-LD is the lead platform's score (the platform marked `isLeadPlatform: true` in the backend API). All platforms are listed in `gamePlatform` but without individual scores. Use the product API's `platforms` array for per-platform breakdown.
 
 - **Music is blocked** — `metacritic.com/music/*` returns HTTP 403 even with a real browser User-Agent. The backend API for albums (`/albums/metacritic/...`) also returns 404. Music data requires a real browser session via CDP.
 

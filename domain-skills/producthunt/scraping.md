@@ -22,12 +22,12 @@ Product Hunt is a React SPA. Key structural facts discovered:
 
 ## Navigation Pattern
 
-```python
-# goto() may fail on Product Hunt — use new_tab() reliably
-tid = new_tab("https://www.producthunt.com")
-wait(4)  # React SPA needs time; wait_for_load() alone is insufficient
-page = page_info()
-# Verify: url should be 'https://www.producthunt.com/'
+```ts
+// goto() may fail on Product Hunt — use new_tab() reliably
+const tid = await new_tab("https://www.producthunt.com");
+await wait(4);  // React SPA needs time; wait_for_load() alone is insufficient
+const page = await page_info();
+// Verify: url should be 'https://www.producthunt.com/'
 ```
 
 ---
@@ -38,9 +38,9 @@ The homepage shows today's launches plus rolling sections for yesterday, last we
 
 ### Working selector: `[data-test^="post-item-"]`
 
-```python
-# Full extraction with name, tagline, slug, votes, topics
-products = js("""
+```ts
+// Full extraction with name, tagline, slug, votes, topics
+const products = await js(`
 JSON.stringify(
   Array.from(document.querySelectorAll('[data-test^="post-item-"]')).map(el => {
     var id = el.getAttribute('data-test').replace('post-item-', '');
@@ -62,7 +62,7 @@ JSON.stringify(
     };
   })
 )
-""")
+`);
 ```
 
 **Sample output:**
@@ -76,9 +76,9 @@ JSON.stringify(
 **Votes:**
 - `"—"` = vote count hidden (today's products during first 4 hours)
 - `"466"` = numeric string (yesterday/older products)
-- `"2,152"` = comma-formatted for large counts (parse: `voteCount.replace(',', '')`)
+- `"2,152"` = comma-formatted for large counts (parse: `voteCount.replaceAll(",", "")`)
 
-**Name prefix**: Ranked products show rank in name: `"1. Claude Opus 4.7"` — strip with `re.sub(r'^\d+\. ', '', name)`.
+**Name prefix**: Ranked products show rank in name: `"1. Claude Opus 4.7"` — strip with `name.replace(/^\d+\. /, "")`.
 
 ---
 
@@ -132,12 +132,12 @@ URL: `https://www.producthunt.com/topics/developer-tools`
 
 Selector changes on topic pages — uses `[data-test^="product:"]` not `post-item-`.
 
-```python
-# Navigate to topic
-new_tab("https://www.producthunt.com/topics/developer-tools")
-wait(3)
+```ts
+// Navigate to topic
+await new_tab("https://www.producthunt.com/topics/developer-tools");
+await wait(3);
 
-products = js("""
+const products = await js(`
 JSON.stringify(
   Array.from(document.querySelectorAll('[data-test^="product:"]')).map(el => {
     var slug = el.getAttribute('data-test').replace('product:', '');
@@ -149,7 +149,7 @@ JSON.stringify(
     };
   })
 )
-""")
+`);
 ```
 
 **Sample output:**
@@ -178,17 +178,17 @@ Same `[data-test^="product:"]` selector as topics. Returns 15 top-reviewed produ
 URL: `https://www.producthunt.com/products/claude-opus-4-7`
 
 ### Get total vote count (sidebar button)
-```python
-# Use [data-test="vote-button"] — different from [data-test="action-bar-vote-button"]
-vote_text = js("document.querySelector('[data-test=\"vote-button\"]').outerText.trim().replace(/\\s+/g, ' ')")
-# Returns: "Upvote • 466 points"
-# Parse votes: vote_text.split('•')[1].strip().replace(' points', '').replace(',', '')
+```ts
+// Use [data-test="vote-button"] — different from [data-test="action-bar-vote-button"]
+const vote_text = await js("document.querySelector('[data-test=\"vote-button\"]').outerText.trim().replace(/\\s+/g, ' ')");
+// Returns: "Upvote • 466 points"
+// Parse votes: vote_text.split('•')[1].trim().replace(' points', '').replaceAll(',', '')
 ```
 
 ### Get review count and rating
-```python
-review_link = js("JSON.stringify(Array.from(document.querySelectorAll('a')).filter(a => a.href && a.href.includes('/reviews') && a.outerText.includes('review')).map(a => a.outerText.trim()).slice(0, 1))")
-# Returns: ["1 review"] or ["5.0\n(731 reviews)"]
+```ts
+const review_link = await js("JSON.stringify(Array.from(document.querySelectorAll('a')).filter(a => a.href && a.href.includes('/reviews') && a.outerText.includes('review')).map(a => a.outerText.trim()).slice(0, 1))");
+// Returns: ["1 review"] or ["5.0\n(731 reviews)"]
 ```
 
 ### Get day rank (sidebar shows "#1 Day Rank")
@@ -205,11 +205,11 @@ URL: `https://www.producthunt.com/search?q=AI+agent`
 
 Selector: `[data-test^="spotlight-result-product-"]`
 
-```python
-new_tab("https://www.producthunt.com/search?q=AI+agent")
-wait(3)
+```ts
+await new_tab("https://www.producthunt.com/search?q=AI+agent");
+await wait(3);
 
-results = js("""
+const results = await js(`
 JSON.stringify(
   Array.from(document.querySelectorAll('[data-test^="spotlight-result-product-"]')).map(el => {
     var id = el.getAttribute('data-test').replace('spotlight-result-product-', '');
@@ -222,7 +222,7 @@ JSON.stringify(
     };
   })
 )
-""")
+`);
 ```
 
 **Note:** Search result elements are `<button>` elements (not `<a>` links), so there is no `href` in the DOM. Product URL must be constructed: `https://www.producthunt.com/products/<slug>` where slug must be derived by other means. The element's `data-test` ID matches the numeric product ID, not the slug.
@@ -251,7 +251,7 @@ JSON.stringify(
 
 ## Common Pitfalls
 
-1. **`innerText` returns `None` on complex elements** — use `outerText` or break into simple single-property expressions. Avoid chaining DOM traversal inside `JSON.stringify()` on large objects.
+1. **`innerText` returns `null` on complex elements** — use `outerText` or break into simple single-property expressions. Avoid chaining DOM traversal inside `JSON.stringify()` on large objects.
 
 2. **`goto()` returns `ERR_ABORTED`** for producthunt.com in some browser sessions — always use `new_tab("url")` instead.
 
@@ -261,9 +261,9 @@ JSON.stringify(
 
 5. **Homepage does not lazy-load more products on scroll** — 30 items is the fixed set. Use leaderboard pages for complete daily listings.
 
-6. **JSON.stringify of DOM-heavy objects returns `None`** — serialize only primitives (strings, numbers) not live DOM node properties.
+6. **JSON.stringify of DOM-heavy objects returns `null`** — serialize only primitives (strings, numbers) not live DOM node properties.
 
-7. **Ranked product names contain rank prefix** — `"1. Claude Opus 4.7"` — strip with regex `re.sub(r'^\d+\.\s+', '', name)`.
+7. **Ranked product names contain rank prefix** — `"1. Claude Opus 4.7"` — strip with regex `name.replace(/^\d+\.\s+/, "")`.
 
 8. **`wait(3)` required after `wait_for_load()`** — the React SPA continues rendering after the load event.
 
@@ -271,13 +271,13 @@ JSON.stringify(
 
 ## Recommended Workflow for Scraping Today's Launches
 
-```python
-# 1. Open Product Hunt in a new tab
-new_tab("https://www.producthunt.com/leaderboard/daily/2026/4/18")
-wait(4)
+```ts
+// 1. Open Product Hunt in a new tab
+await new_tab("https://www.producthunt.com/leaderboard/daily/2026/4/18");
+await wait(4);
 
-# 2. Extract all products with metadata
-products = js("""
+// 2. Extract all products with metadata
+const products = await js(`
 JSON.stringify(
   Array.from(document.querySelectorAll('[data-test^="post-item-"]')).map(el => {
     var id = el.getAttribute('data-test').replace('post-item-', '');
@@ -298,10 +298,10 @@ JSON.stringify(
     };
   })
 )
-""")
-import json
-data = json.loads(products)
-print(f"Found {len(data)} products")
-for p in data:
-    print(f"  {p['name']} — {p['votes']} votes — {p['tagline']}")
+`);
+const data = JSON.parse(products);
+console.log(`Found ${data.length} products`);
+for (const p of data) {
+  console.log(`  ${p.name} — ${p.votes} votes — ${p.tagline}`);
+}
 ```

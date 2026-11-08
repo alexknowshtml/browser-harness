@@ -6,35 +6,33 @@
 
 **ESearch → ESummary is the fastest pipeline for most tasks — two calls, JSON responses, no XML parsing.**
 
-```python
-import json
-from helpers import http_get
+```ts
+// Step 1: search → get PMIDs
+const search = JSON.parse(await http_get(
+  "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi" +
+  "?db=pubmed&term=deep+learning+radiology&retmax=10&retmode=json"
+));
+const pmids: string[] = search.esearchresult.idlist; // e.g. ['41999029', '41998456', ...]
+const count = search.esearchresult.count;            // total hits across all pages
 
-# Step 1: search → get PMIDs
-search = json.loads(http_get(
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-    "?db=pubmed&term=deep+learning+radiology&retmax=10&retmode=json"
-))
-pmids = search['esearchresult']['idlist']   # e.g. ['41999029', '41998456', ...]
-count = search['esearchresult']['count']    # total hits across all pages
-
-# Step 2: fetch lightweight metadata for all PMIDs in one call
-summary = json.loads(http_get(
-    f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-    f"?db=pubmed&id={','.join(pmids)}&retmode=json"
-))
-result = summary['result']
-for uid in result['uids']:
-    art = result[uid]
-    print(uid, art['pubdate'], art['source'])
-    print("  ", art['title'][:80])
-    print("  authors:", [a['name'] for a in art['authors'][:3]])
-# Confirmed output (2026-04-18):
-# 41999029 2026 Apr 18 Med Sci Monit
-#    Use of Deep Learning Models in the Diagnosis of Proptosis Through Orbi
-#    authors: ['Kesimal U', 'Akkaya HE', 'Polat Ö']
-# 41998456 2026 Apr 17 Sci Rep
-#    ...
+// Step 2: fetch lightweight metadata for all PMIDs in one call
+const summary = JSON.parse(await http_get(
+  "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi" +
+  `?db=pubmed&id=${pmids.join(",")}&retmode=json`
+));
+const result = summary.result;
+for (const uid of result.uids) {
+  const art = result[uid];
+  console.log(uid, art.pubdate, art.source);
+  console.log("  ", art.title.slice(0, 80));
+  console.log("  authors:", JSON.stringify(art.authors.slice(0, 3).map((a: any) => a.name)));
+}
+// Confirmed output (2026-04-18):
+// 41999029 2026 Apr 18 Med Sci Monit
+//    Use of Deep Learning Models in the Diagnosis of Proptosis Through Orbi
+//    authors: ["Kesimal U","Akkaya HE","Polat Ö"]
+// 41998456 2026 Apr 17 Sci Rep
+//    ...
 ```
 
 Use **EFetch XML** when you need: full abstract text, MeSH terms, complete author names (not just "Last I"), structured abstract labels, or the DOI from within the article record.
@@ -43,28 +41,25 @@ Use **EFetch XML** when you need: full abstract text, MeSH terms, complete autho
 
 ### Search PubMed (ESearch)
 
-```python
-import json
-from helpers import http_get
-
-data = json.loads(http_get(
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-    "?db=pubmed"
-    "&term=large+language+models+clinical"
-    "&retmax=5"
-    "&retmode=json"
-    "&sort=pub+date"                          # newest first; default is relevance
-    "&datetype=pdat"                          # filter by publication date
-    "&mindate=2024/01/01&maxdate=2024/12/31"  # YYYY/MM/DD format
-))
-result = data['esearchresult']
-print("Total hits:", result['count'])         # '24160' — note: string, not int
-print("PMIDs:", result['idlist'])
-print("Query translation:", result['querytranslation'])
-# Confirmed output (2026-04-18):
-# Total hits: 24160
-# PMIDs: ['41996895', '41996722', '41996006', '41995888', '41995759']
-# Query translation: "large language models"[MeSH Terms] OR ...
+```ts
+const data = JSON.parse(await http_get(
+  "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi" +
+  "?db=pubmed" +
+  "&term=large+language+models+clinical" +
+  "&retmax=5" +
+  "&retmode=json" +
+  "&sort=pub+date" +                         // newest first; default is relevance
+  "&datetype=pdat" +                         // filter by publication date
+  "&mindate=2024/01/01&maxdate=2024/12/31"   // YYYY/MM/DD format
+));
+const result = data.esearchresult;
+console.log("Total hits:", result.count);    // '24160' — note: string, not int
+console.log("PMIDs:", JSON.stringify(result.idlist));
+console.log("Query translation:", result.querytranslation);
+// Confirmed output (2026-04-18):
+// Total hits: 24160
+// PMIDs: ["41996895","41996722","41996006","41995888","41995759"]
+// Query translation: "large language models"[MeSH Terms] OR ...
 ```
 
 #### ESearch field tags (append to term)
@@ -90,229 +85,228 @@ Boolean operators: `AND`, `OR`, `NOT`. Phrase search: `"exact phrase"[Title]`.
 
 ### Lightweight metadata — ESummary (JSON, no XML)
 
-```python
-import json
-from helpers import http_get
-
-data = json.loads(http_get(
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-    "?db=pubmed&id=41999029,41998456,41997837&retmode=json"
-))
-result = data['result']
-for uid in result['uids']:
-    art = result[uid]
-    # Key fields available:
-    title         = art['title']            # full title string
-    source        = art['source']           # abbreviated journal name
-    fulljournalname = art['fulljournalname']
-    pubdate       = art['pubdate']          # e.g. '2026 Apr 18'
-    epubdate      = art['epubdate']         # e-pub ahead of print date (may be empty)
-    authors       = art['authors']          # list of {'name': 'Last I', 'authtype': ...}
-    volume        = art['volume']
-    issue         = art['issue']
-    pages         = art['pages']
-    pubtype       = art['pubtype']          # list: ['Journal Article', 'Review', ...]
-    # Extract DOI from elocationid or articleids:
-    doi_field     = art['elocationid']      # e.g. 'doi: 10.12659/MSM.951157'
-    article_ids   = {x['idtype']: x['value'] for x in art['articleids']}
-    doi           = article_ids.get('doi')
-    pmc_id        = article_ids.get('pmc')  # PMC ID if open access
-    print(uid, pubdate, source)
-    print(" ", title[:70])
-    print("  doi:", doi, "| pmc:", pmc_id)
-# Confirmed output (2026-04-18):
-# 41999029 2026 Apr 18 Med Sci Monit
-#    Use of Deep Learning Models in the Diagnosis of Proptosis Through Orbi
-#   doi: 10.12659/MSM.951157 | pmc: None
+```ts
+const data = JSON.parse(await http_get(
+  "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi" +
+  "?db=pubmed&id=41999029,41998456,41997837&retmode=json"
+));
+const result = data.result;
+for (const uid of result.uids) {
+  const art = result[uid];
+  // Key fields available:
+  const title = art.title;                    // full title string
+  const source = art.source;                  // abbreviated journal name
+  const fulljournalname = art.fulljournalname;
+  const pubdate = art.pubdate;                // e.g. '2026 Apr 18'
+  const epubdate = art.epubdate;              // e-pub ahead of print date (may be empty)
+  const authors = art.authors;                // list of {name: 'Last I', authtype: ...}
+  const volume = art.volume;
+  const issue = art.issue;
+  const pages = art.pages;
+  const pubtype = art.pubtype;                // list: ['Journal Article', 'Review', ...]
+  // Extract DOI from elocationid or articleids:
+  const doi_field = art.elocationid;          // e.g. 'doi: 10.12659/MSM.951157'
+  const article_ids: Record<string, string> = Object.fromEntries(art.articleids.map((x: any) => [x.idtype, x.value]));
+  const doi = article_ids.doi ?? null;
+  const pmc_id = article_ids.pmc ?? null;     // PMC ID if open access
+  console.log(uid, pubdate, source);
+  console.log(" ", title.slice(0, 70));
+  console.log("  doi:", doi, "| pmc:", pmc_id);
+}
+// Confirmed output (2026-04-18):
+// 41999029 2026 Apr 18 Med Sci Monit
+//    Use of Deep Learning Models in the Diagnosis of Proptosis Through Orbi
+//   doi: 10.12659/MSM.951157 | pmc: null
 ```
 
 ### Full article metadata — EFetch XML
 
 Use this for full abstracts, complete author names, MeSH terms, structured abstract sections.
 
-```python
-import json, xml.etree.ElementTree as ET
-from helpers import http_get
+```ts
+// Minimal XML helpers (no DOM in bun). PubMed XML is well-formed and these tags don't self-nest.
+const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'")
+  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d)).replace(/&amp;/g, "&");
+type El = { attrs: string; inner: string };
+// every <name ...>...</name> (or <name/>) inside xml, in document order
+const els = (xml: string, name: string): El[] =>
+  [...xml.matchAll(new RegExp(`<${name}(\\s[^>]*)?(?:/>|>([\\s\\S]*?)</${name}>)`, "g"))].map((m) => ({ attrs: m[1] ?? "", inner: m[2] ?? "" }));
+const el = (xml: string | undefined, name: string): El | null => (xml == null ? null : els(xml, name)[0] ?? null);
+// full text with embedded tags (<i>, <sub>) stripped, like itertext()
+const text = (e: El | null) => (e ? decode(e.inner.replace(/<[^>]+>/g, "")).trim() : "");
+const attr = (e: El, a: string) => decode(e.attrs.match(new RegExp(`${a}="([^"]*)"`))?.[1] ?? "");
 
-raw = http_get(
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-    "?db=pubmed&id=41999029,36328784&retmode=xml&rettype=abstract"
-)
-root = ET.fromstring(raw)
+const raw = await http_get(
+  "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi" +
+  "?db=pubmed&id=41999029,36328784&retmode=xml&rettype=abstract"
+);
 
-for art in root.findall('.//PubmedArticle'):
-    mc      = art.find('MedlineCitation')
-    pmid    = mc.find('PMID').text
-    article = mc.find('Article')
+for (const art of els(raw, "PubmedArticle")) {
+  const mc = el(art.inner, "MedlineCitation")!;
+  const pmid = text(el(mc.inner, "PMID"));
+  const article = el(mc.inner, "Article")!;
 
-    # Title — use itertext() to handle embedded tags like <i>, <sub>
-    title   = ''.join(article.find('ArticleTitle').itertext()).strip()
+  // Title — text() strips embedded tags like <i>, <sub>
+  const title = text(el(article.inner, "ArticleTitle"));
 
-    # Abstract — plain or structured (BACKGROUND / METHODS / RESULTS / CONCLUSION)
-    abstract_el = article.find('Abstract')
-    if abstract_el is not None:
-        sections = []
-        for t in abstract_el.findall('AbstractText'):
-            label = t.get('Label', '')          # e.g. 'BACKGROUND', 'METHODS'
-            text  = ''.join(t.itertext()).strip()
-            sections.append(f"[{label}] {text}" if label else text)
-        abstract = ' '.join(sections)
-    else:
-        abstract = ''                           # ~15% of articles have no abstract
+  // Abstract — plain or structured (BACKGROUND / METHODS / RESULTS / CONCLUSION)
+  const abstract_el = el(article.inner, "Abstract");
+  let abstract = "";                          // ~15% of articles have no abstract
+  if (abstract_el) {
+    const sections: string[] = [];
+    for (const t of els(abstract_el.inner, "AbstractText")) {
+      const label = attr(t, "Label");         // e.g. 'BACKGROUND', 'METHODS'
+      const txt = text(t);
+      sections.push(label ? `[${label}] ${txt}` : txt);
+    }
+    abstract = sections.join(" ");
+  }
 
-    # Journal + year
-    journal  = article.find('Journal')
-    j_title  = journal.find('Title').text if journal is not None else ''
-    pub_date = journal.find('.//PubDate') if journal is not None else None
-    if pub_date is not None:
-        year_el    = pub_date.find('Year')
-        medline_el = pub_date.find('MedlineDate')   # fallback for old/seasonal dates
-        season_el  = pub_date.find('Season')        # e.g. 'Jul-Aug', 'Oct-Dec'
-        year = (year_el.text if year_el is not None
-                else medline_el.text[:4] if medline_el is not None else '')
+  // Journal + year
+  const journal = el(article.inner, "Journal");
+  const j_title = journal ? text(el(journal.inner, "Title")) : "";
+  const pub_date = el(journal?.inner, "PubDate");
+  let year = "";
+  if (pub_date) {
+    const year_el = el(pub_date.inner, "Year");
+    const medline_el = el(pub_date.inner, "MedlineDate"); // fallback for old/seasonal dates
+    const season_el = el(pub_date.inner, "Season");       // e.g. 'Jul-Aug', 'Oct-Dec'
+    year = year_el ? text(year_el) : medline_el ? text(medline_el).slice(0, 4) : "";
+  }
 
-    # DOI
-    doi_el = next(
-        (e for e in article.findall('ELocationID') if e.get('EIdType') == 'doi'),
-        None
-    )
-    doi = doi_el.text if doi_el is not None else ''
+  // DOI
+  const doi_el = els(article.inner, "ELocationID").find((e) => attr(e, "EIdType") === "doi");
+  const doi = doi_el ? text(doi_el) : "";
 
-    # Authors — handle CollectiveName (consortium/group authors)
-    author_list = article.find('AuthorList')
-    authors = []
-    if author_list is not None:
-        for a in author_list.findall('Author'):
-            collective = a.find('CollectiveName')
-            last       = a.find('LastName')
-            fore       = a.find('ForeName')
-            initials   = a.find('Initials')
-            if collective is not None:
-                authors.append(collective.text)
-            elif last is not None:
-                full = last.text
-                if fore is not None:
-                    full += f", {fore.text}"
-                authors.append(full)
+  // Authors — handle CollectiveName (consortium/group authors)
+  const author_list = el(article.inner, "AuthorList");
+  const authors: string[] = [];
+  if (author_list) {
+    for (const a of els(author_list.inner, "Author")) {
+      const collective = el(a.inner, "CollectiveName");
+      const last = el(a.inner, "LastName");
+      const fore = el(a.inner, "ForeName");
+      const initials = el(a.inner, "Initials");
+      if (collective) {
+        authors.push(text(collective));
+      } else if (last) {
+        let full = text(last);
+        if (fore) full += `, ${text(fore)}`;
+        authors.push(full);
+      }
+    }
+  }
 
-    # MeSH controlled vocabulary terms
-    mesh_list = mc.find('MeshHeadingList')
-    mesh_terms = []
-    if mesh_list is not None:
-        mesh_terms = [
-            mh.find('DescriptorName').text
-            for mh in mesh_list.findall('MeshHeading')
-            if mh.find('DescriptorName') is not None
-        ]
+  // MeSH controlled vocabulary terms
+  const mesh_list = el(mc.inner, "MeshHeadingList");
+  let mesh_terms: string[] = [];
+  if (mesh_list) {
+    mesh_terms = els(mesh_list.inner, "MeshHeading")
+      .map((mh) => el(mh.inner, "DescriptorName"))
+      .filter((d) => d !== null)
+      .map((d) => text(d));
+  }
 
-    print(f"PMID={pmid} ({year}) {j_title}")
-    print(f"  Title: {title[:70]}")
-    print(f"  Authors: {authors[:3]}")
-    print(f"  DOI: {doi}")
-    print(f"  MeSH: {mesh_terms[:4]}")
-    print(f"  Abstract: {abstract[:120]}")
-# Confirmed output (2026-04-18):
-# PMID=41999029 (2026) Medical science monitor : international medical...
-#   Title: Use of Deep Learning Models in the Diagnosis of Proptosis Thro
-#   Authors: ['Kesimal, Uğur', 'Akkaya, Habip Eser', 'Polat, Önder']
-#   DOI: 10.12659/MSM.951157
-#   MeSH: ['Humans', 'Deep Learning', 'Exophthalmos', 'Magnetic Resonance Imaging']
-#   Abstract: BACKGROUND Proptosis is a common manifestation of orbital disease...
-# PMID=36328784 (...)
-#   Abstract: [OBJECTIVES] Physical inactivity and sedentary behaviour...  ← structured
+  console.log(`PMID=${pmid} (${year}) ${j_title}`);
+  console.log(`  Title: ${title.slice(0, 70)}`);
+  console.log(`  Authors: ${JSON.stringify(authors.slice(0, 3))}`);
+  console.log(`  DOI: ${doi}`);
+  console.log(`  MeSH: ${JSON.stringify(mesh_terms.slice(0, 4))}`);
+  console.log(`  Abstract: ${abstract.slice(0, 120)}`);
+}
+// Confirmed output (2026-04-18):
+// PMID=41999029 (2026) Medical science monitor : international medical...
+//   Title: Use of Deep Learning Models in the Diagnosis of Proptosis Thro
+//   Authors: ["Kesimal, Uğur","Akkaya, Habip Eser","Polat, Önder"]
+//   DOI: 10.12659/MSM.951157
+//   MeSH: ["Humans","Deep Learning","Exophthalmos","Magnetic Resonance Imaging"]
+//   Abstract: BACKGROUND Proptosis is a common manifestation of orbital disease...
+// PMID=36328784 (...)
+//   Abstract: [OBJECTIVES] Physical inactivity and sedentary behaviour...  ← structured
 ```
 
 ### Large result sets — usehistory + WebEnv
 
 When `count` exceeds `retmax` (max 10 000), use server-side history to paginate EFetch without re-running ESearch on every page.
 
-```python
-import json, xml.etree.ElementTree as ET
-from helpers import http_get
+```ts
+// Step 1: ESearch with usehistory=y — NCBI holds result set on server
+const search = JSON.parse(await http_get(
+  "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi" +
+  "?db=pubmed&term=CRISPR+gene+editing&retmax=0&retmode=json&usehistory=y"
+));
+const webenv = search.esearchresult.webenv;       // server-side session token
+const query_key = search.esearchresult.querykey;  // result set ID within session
+const total = parseInt(search.esearchresult.count);
+console.log(`Total: ${total}, WebEnv: ${webenv.slice(0, 30)}..., query_key: ${query_key}`);
+// Confirmed output (2026-04-18):
+// Total: 24160, WebEnv: MCID_69e4203757db89391008d6f1..., query_key: 1
 
-# Step 1: ESearch with usehistory=y — NCBI holds result set on server
-search = json.loads(http_get(
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-    "?db=pubmed&term=CRISPR+gene+editing&retmax=0&retmode=json&usehistory=y"
-))
-webenv    = search['esearchresult']['webenv']       # server-side session token
-query_key = search['esearchresult']['querykey']     # result set ID within session
-total     = int(search['esearchresult']['count'])
-print(f"Total: {total}, WebEnv: {webenv[:30]}..., query_key: {query_key}")
-# Confirmed output (2026-04-18):
-# Total: 24160, WebEnv: MCID_69e4203757db89391008d6f1..., query_key: 1
-
-# Step 2: EFetch pages using WebEnv (no re-searching)
-batch_size = 200
-for start in range(0, min(total, 1000), batch_size):  # cap at 1000 for demo
-    raw = http_get(
-        f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-        f"?db=pubmed&query_key={query_key}&WebEnv={webenv}"
-        f"&retstart={start}&retmax={batch_size}&retmode=xml&rettype=abstract"
-    )
-    root = ET.fromstring(raw)
-    articles = root.findall('.//PubmedArticle')
-    print(f"  Fetched {len(articles)} articles (start={start})")
-    # process articles here...
+// Step 2: EFetch pages using WebEnv (no re-searching)
+const batch_size = 200;
+for (let start = 0; start < Math.min(total, 1000); start += batch_size) { // cap at 1000 for demo
+  const raw = await http_get(
+    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi" +
+    `?db=pubmed&query_key=${query_key}&WebEnv=${webenv}` +
+    `&retstart=${start}&retmax=${batch_size}&retmode=xml&rettype=abstract`
+  );
+  const articles = raw.match(/<PubmedArticle[\s>]/g) ?? [];
+  console.log(`  Fetched ${articles.length} articles (start=${start})`);
+  // process articles here (see the EFetch XML helpers above)...
+}
 ```
 
 ### EInfo — list available NCBI databases
 
-```python
-import json
-from helpers import http_get
-
-data = json.loads(http_get(
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi?retmode=json"
-))
-dbs = data['einforesult']['dblist']
-print(f"Total databases: {len(dbs)}")   # Confirmed: 39 (2026-04-18)
-print(dbs[:10])
-# ['pubmed', 'protein', 'nuccore', 'ipg', 'nucleotide', 'structure',
-#  'genome', 'annotinfo', 'assembly', 'bioproject']
+```ts
+const data = JSON.parse(await http_get(
+  "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi?retmode=json"
+));
+const dbs: string[] = data.einforesult.dblist;
+console.log(`Total databases: ${dbs.length}`);   // Confirmed: 39 (2026-04-18)
+console.log(JSON.stringify(dbs.slice(0, 10)));
+// ["pubmed","protein","nuccore","ipg","nucleotide","structure",
+//  "genome","annotinfo","assembly","bioproject"]
 ```
 
 Get PubMed-specific metadata (field list, link list):
 
-```python
-import json
-from helpers import http_get
-
-data = json.loads(http_get(
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi?db=pubmed&retmode=json"
-))
-db_info = data['einforesult']['dbinfo'][0]
-print("DB name:", db_info['dbname'])
-print("Record count:", db_info['count'])    # total PubMed records
-link_names = [l['name'] for l in db_info.get('linklist', [])]
-print(f"Link types ({len(link_names)}):", link_names[:5])
-# Confirmed (2026-04-18):
-# DB name: pubmed
-# Record count: 37620453
-# Link types (48): ['pubmed_assembly', 'pubmed_bioproject', ...]
+```ts
+const data = JSON.parse(await http_get(
+  "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi?db=pubmed&retmode=json"
+));
+const db_info = data.einforesult.dbinfo[0];
+console.log("DB name:", db_info.dbname);
+console.log("Record count:", db_info.count);    // total PubMed records
+const link_names: string[] = (db_info.linklist ?? []).map((l: any) => l.name);
+console.log(`Link types (${link_names.length}):`, JSON.stringify(link_names.slice(0, 5)));
+// Confirmed (2026-04-18):
+// DB name: pubmed
+// Record count: 37620453
+// Link types (48): ["pubmed_assembly","pubmed_bioproject",...]
 ```
 
 ### ELink — cross-database linking
 
 ELink connects a PubMed record to associated data in other NCBI databases. The `pubmed_pubmed` "related articles" linkname relies on a similarity server that is intermittently unavailable (returns `"Couldn't resolve #exLinkSrv2, the address table is empty."`). Use the non-similarity links below instead.
 
-```python
-import json
-from helpers import http_get
-
-# Link a PMID to its free full-text in PMC (if open access)
-# linkname=pubmed_pmc — may also hit the server outage; check error field
-data = json.loads(http_get(
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi"
-    "?dbfrom=pubmed&id=38325330&linkname=pubmed_pmc&retmode=json"
-))
-error = data.get('ERROR', '')
-if error:
-    print("ELink error:", error)   # 'Couldn't resolve #exLinkSrv2...' — NCBI server issue
-else:
-    for ls in data.get('linksets', []):
-        for lsdb in ls.get('linksetdbs', []):
-            print(lsdb['linkname'], "→", lsdb['links'][:5])
+```ts
+// Link a PMID to its free full-text in PMC (if open access)
+// linkname=pubmed_pmc — may also hit the server outage; check error field
+const data = JSON.parse(await http_get(
+  "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi" +
+  "?dbfrom=pubmed&id=38325330&linkname=pubmed_pmc&retmode=json"
+));
+const error = data.ERROR ?? "";
+if (error) {
+  console.log("ELink error:", error); // 'Couldn't resolve #exLinkSrv2...' — NCBI server issue
+} else {
+  for (const ls of data.linksets ?? []) {
+    for (const lsdb of ls.linksetdbs ?? []) {
+      console.log(lsdb.linkname, "→", JSON.stringify(lsdb.links.slice(0, 5)));
+    }
+  }
+}
 ```
 
 Available ELink linknames from pubmed (48 total):
@@ -367,53 +361,53 @@ https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi     # DB metadata
 
 ### PubMed article URL construction
 
-```python
-pmid = "41999029"
-pubmed_url  = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-doi         = "10.12659/MSM.951157"
-doi_url     = f"https://doi.org/{doi}"        # resolves to publisher page
-pmc_id      = "PMC9876543"                    # from ESummary articleids
-pmc_url     = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/"
+```ts
+const pmid = "41999029";
+const pubmed_url = `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`;
+const doi = "10.12659/MSM.951157";
+const doi_url = `https://doi.org/${doi}`;       // resolves to publisher page
+const pmc_id = "PMC9876543";                     // from ESummary articleids
+const pmc_url = `https://www.ncbi.nlm.nih.gov/pmc/articles/${pmc_id}/`;
 ```
 
 ## Gotchas
 
-- **`count` is a string, not int.** `search['esearchresult']['count']` returns `'24160'`, not `24160`. Always cast with `int()` before arithmetic.
+- **`count` is a string, not int.** `search.esearchresult.count` returns `'24160'`, not `24160`. Always cast with `parseInt()` before arithmetic.
 
-- **EFetch retmode must be `xml` for full records.** Unlike ESearch and ESummary, EFetch with `retmode=json` returns flat text (the MEDLINE citation text format), not structured JSON. Parse EFetch responses with `xml.etree.ElementTree`.
+- **EFetch retmode must be `xml` for full records.** Unlike ESearch and ESummary, EFetch with `retmode=json` returns flat text (the MEDLINE citation text format), not structured JSON. Parse EFetch responses as XML (the `els`/`el`/`text` helpers in the EFetch example).
 
-- **`ArticleTitle` may contain embedded XML tags.** Titles with italics (`<i>Staphylococcus aureus</i>`) or math (`<sub>2</sub>`) are mixed-content nodes. Always use `''.join(el.itertext())` instead of `el.text`, which silently drops everything after the first child tag.
+- **`ArticleTitle` may contain embedded XML tags.** Titles with italics (`<i>Staphylococcus aureus</i>`) or math (`<sub>2</sub>`) are mixed-content nodes. Always strip the inner tags (`text(el)` in the EFetch helpers) instead of reading text up to the first child tag, which silently drops everything after it.
 
-- **~15% of articles have no abstract.** `article.find('Abstract')` returns `None` for short communications, editorials, letters, and older records. Always guard with `if abstract_el is not None`.
+- **~15% of articles have no abstract.** `el(article.inner, "Abstract")` returns `null` for short communications, editorials, letters, and older records. Always guard with `if (abstract_el)`.
 
-- **Author names vary in structure — always handle `CollectiveName`.** Consortium papers list a group name (`'GeKeR Study Group'`, `'Breast Cancer Association Consortium'`) under `<CollectiveName>` instead of `<LastName>/<ForeName>`. Individual authors have `<LastName>` + optionally `<ForeName>` and `<Initials>`. Check `CollectiveName` first; falling through to `LastName` without the check produces `None` errors.
+- **Author names vary in structure — always handle `CollectiveName`.** Consortium papers list a group name (`'GeKeR Study Group'`, `'Breast Cancer Association Consortium'`) under `<CollectiveName>` instead of `<LastName>/<ForeName>`. Individual authors have `<LastName>` + optionally `<ForeName>` and `<Initials>`. Check `CollectiveName` first; falling through to `LastName` without the check produces `null` errors.
   - Confirmed real examples (2026-04-18): PMID 37586835 (`GeKeR Study Group`), PMID 36328784 (`Breast Cancer Association Consortium`)
 
 - **PubDate has three possible structures.** Most articles have `<Year>` + optional `<Month>` + optional `<Day>`. Seasonal journals use `<Season>` (e.g. `Jul-Aug`, `Oct-Dec`) instead of `<Month>`. A minority of older records use `<MedlineDate>` (e.g. `1995 Fall`) with no `<Year>`. Safe extraction pattern:
-  ```python
-  pub_date = journal.find('.//PubDate')
-  year_el    = pub_date.find('Year')    if pub_date is not None else None
-  medline_el = pub_date.find('MedlineDate') if pub_date is not None else None
-  year = (year_el.text if year_el is not None
-          else medline_el.text[:4] if medline_el is not None else '')
+  ```ts
+  // journal + el/text helpers from the EFetch example above
+  const pub_date = el(journal?.inner, "PubDate");
+  const year_el = pub_date ? el(pub_date.inner, "Year") : null;
+  const medline_el = pub_date ? el(pub_date.inner, "MedlineDate") : null;
+  const year = year_el ? text(year_el) : medline_el ? text(medline_el).slice(0, 4) : "";
   ```
 
 - **Batch EFetch: keep IDs to ~200 per call.** The API accepts comma-separated IDs in `id=`, but very large batches (500+) occasionally time out or return truncated XML. For >200 articles, iterate in chunks or use `usehistory` + `WebEnv`.
 
 - **ELink `pubmed_pubmed` (related articles) is intermittently broken.** The NCBI similarity server returns `"Couldn't resolve #exLinkSrv2, the address table is empty."` — this is a persistent server-side issue as of 2026-04-18, not a rate-limit error. Other linknames (`pubmed_gene`, `pubmed_pmc`, `pubmed_clinvar`) fail with the same error. Use the DOI as a fallback link to publisher full text.
 
-- **Rate limits: 3 req/s without API key, 10 req/s with free key.** Exceeding 3 req/s returns HTTP 429. Insert `time.sleep(0.34)` between sequential calls without a key. Get a free API key at https://www.ncbi.nlm.nih.gov/account/ and append `&api_key=YOUR_KEY` to all URLs.
+- **Rate limits: 3 req/s without API key, 10 req/s with free key.** Exceeding 3 req/s returns HTTP 429. Insert `await wait(0.34)` between sequential calls without a key. Get a free API key at https://www.ncbi.nlm.nih.gov/account/ and append `&api_key=YOUR_KEY` to all URLs.
 
 - **`retmax` upper bound is 10 000 for ESearch.** To retrieve more than 10 000 PMIDs for a search, use `usehistory=y` and page through EFetch with `retstart` offsets. EFetch itself also accepts `retmax` up to 10 000 per call.
 
 - **`retmax=0` in ESearch returns only the count, not IDs — useful for counting.** Combine with `usehistory=y` to store the result for later paging without fetching IDs upfront:
-  ```python
-  search = json.loads(http_get(
-      "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-      "?db=pubmed&term=cancer&retmax=0&retmode=json&usehistory=y"
-  ))
-  total  = int(search['esearchresult']['count'])   # e.g. 4800000
-  webenv = search['esearchresult']['webenv']
+  ```ts
+  const search = JSON.parse(await http_get(
+    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi" +
+    "?db=pubmed&term=cancer&retmax=0&retmode=json&usehistory=y"
+  ));
+  const total = parseInt(search.esearchresult.count);   // e.g. 4800000
+  const webenv = search.esearchresult.webenv;
   ```
 
 - **ESummary `authors` field uses abbreviated names (`Last I`), not full names.** Use EFetch XML to get `ForeName` (e.g. `'Kesimal, Uğur'` vs ESummary `'Kesimal U'`). For bulk tasks where full names are not needed, ESummary is faster.

@@ -8,30 +8,30 @@ Covers: `indeed.com`, `glassdoor.com`, `stepstone.de`
 
 Never type into the search box on the homepage — bot detection triggers immediately. Build search URLs directly and navigate straight to results.
 
-```python
-from urllib.parse import quote_plus
+```ts
+const quote_plus = (s: string) => encodeURIComponent(s).replace(/%20/g, "+")
 
-# Indeed — English (US)
-query, location = "Python developer", "San Francisco"
-goto(f"https://www.indeed.com/jobs?q={quote_plus(query)}&l={quote_plus(location)}")
-wait_for_load()
-wait(2)
+// Indeed — English (US)
+const query = "Python developer", location = "San Francisco"
+await goto(`https://www.indeed.com/jobs?q=${quote_plus(query)}&l=${quote_plus(location)}`)
+await wait_for_load()
+await wait(2)
 
-# Indeed — last 24 hours
-goto(f"https://www.indeed.com/jobs?q={quote_plus(query)}&l={quote_plus(location)}&fromage=1")
-wait_for_load()
-wait(2)
+// Indeed — last 24 hours
+await goto(`https://www.indeed.com/jobs?q=${quote_plus(query)}&l=${quote_plus(location)}&fromage=1`)
+await wait_for_load()
+await wait(2)
 
-# Glassdoor — public search (no login required for result cards)
-goto(f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={quote_plus(query)}")
-wait_for_load()
-wait(2)
+// Glassdoor — public search (no login required for result cards)
+await goto(`https://www.glassdoor.com/Job/jobs.htm?sc.keyword=${quote_plus(query)}`)
+await wait_for_load()
+await wait(2)
 
-# Stepstone (Germany)
-keyword, city = "Data Scientist", "Berlin"
-goto(f"https://www.stepstone.de/jobs/{quote_plus(keyword)}/in-{quote_plus(city)}.html")
-wait_for_load()
-wait(2)
+// Stepstone (Germany)
+const keyword = "Data Scientist", city = "Berlin"
+await goto(`https://www.stepstone.de/jobs/${quote_plus(keyword)}/in-${quote_plus(city)}.html`)
+await wait_for_load()
+await wait(2)
 ```
 
 ---
@@ -75,10 +75,10 @@ wait(2)
 | Full-time | `/jobs/{keyword}/in-{city}.html?of=1` |
 
 For Stepstone, keyword and city go directly in the path — encode spaces as `-`:
-```python
-kw_path = keyword.replace(" ", "-")
-city_path = city.replace(" ", "-")
-goto(f"https://www.stepstone.de/jobs/{kw_path}/in-{city_path}.html")
+```ts
+const kw_path = keyword.replaceAll(" ", "-")
+const city_path = city.replaceAll(" ", "-")
+await goto(`https://www.stepstone.de/jobs/${kw_path}/in-${city_path}.html`)
 ```
 
 ---
@@ -87,10 +87,10 @@ goto(f"https://www.stepstone.de/jobs/{kw_path}/in-{city_path}.html")
 
 Indeed (EU/UK) and Glassdoor show GDPR consent overlays. Dismiss before extraction.
 
-```python
-def dismiss_cookie_banner():
-    """Try common consent button patterns. Safe to call even if no banner is present."""
-    dismissed = js("""
+```ts
+/** Try common consent button patterns. Safe to call even if no banner is present. */
+async function dismiss_cookie_banner() {
+  const dismissed = await js(`
     (function() {
       // Indeed: "Accept all cookies" button
       var selectors = [
@@ -113,20 +113,20 @@ def dismiss_cookie_banner():
       }
       return null;
     })()
-    """)
-    if dismissed:
-        wait(1)
-    return dismissed
+    `)
+  if (dismissed) await wait(1)
+  return dismissed
+}
 ```
 
 Call immediately after `wait_for_load()` on `.co.uk`, `.de`, or `glassdoor.com`:
 
-```python
-goto("https://www.indeed.co.uk/jobs?q=Python+developer&l=London")
-wait_for_load()
-wait(2)
-dismiss_cookie_banner()
-wait(1)
+```ts
+await goto("https://www.indeed.co.uk/jobs?q=Python+developer&l=London")
+await wait_for_load()
+await wait(2)
+await dismiss_cookie_banner()
+await wait(1)
 ```
 
 ---
@@ -135,17 +135,14 @@ wait(1)
 
 Each result card on Indeed carries a `data-jk` attribute (the job key). Use it to construct direct URLs.
 
-```python
-import json
-from urllib.parse import quote_plus
+```ts
+const query = "machine learning engineer", location = "New York"
+await goto(`https://www.indeed.com/jobs?q=${encodeURIComponent(query)}&l=${encodeURIComponent(location)}`)
+await wait_for_load()
+await wait(2)
+await dismiss_cookie_banner()
 
-query, location = "machine learning engineer", "New York"
-goto(f"https://www.indeed.com/jobs?q={quote_plus(query)}&l={quote_plus(location)}")
-wait_for_load()
-wait(2)
-dismiss_cookie_banner()
-
-jobs = js("""
+const jobs = await js(`
 (function() {
   // Cards live in <div data-jk="..."> or <li> with data-jk attribute
   var cards = document.querySelectorAll('[data-jk]');
@@ -184,12 +181,11 @@ jobs = js("""
   }
   return JSON.stringify(out);
 })()
-""")
+`)
 
-results = json.loads(jobs)
-for r in results:
-    print(r)
-# Typically returns 10–15 cards per page
+const results = JSON.parse(jobs)
+for (const r of results) console.log(r)
+// Typically returns 10–15 cards per page
 ```
 
 ---
@@ -198,26 +194,23 @@ for r in results:
 
 Indeed paginates using `&start=N` where N increments by 10 per page.
 
-```python
-import json
-from urllib.parse import quote_plus
+```ts
+const query = "data scientist", location = "remote"
+const base_url = `https://www.indeed.com/jobs?q=${encodeURIComponent(query)}&l=${encodeURIComponent(location)}`
 
-query, location = "data scientist", "remote"
-base_url = f"https://www.indeed.com/jobs?q={quote_plus(query)}&l={quote_plus(location)}"
+const all_jobs: any[] = []
+let page = 0
 
-all_jobs = []
+for (page = 0; page < 3; page++) {   // 3 pages = up to ~30 results
+  const start = page * 10
+  const url = start === 0 ? base_url : `${base_url}&start=${start}`
+  await goto(url)
+  await wait_for_load()
+  await wait(2)   // mandatory — bot detection is aggressive on rapid loads
 
-for page in range(3):   # 3 pages = up to ~30 results
-    start = page * 10
-    url = base_url if start == 0 else f"{base_url}&start={start}"
-    goto(url)
-    wait_for_load()
-    wait(2)   # mandatory — bot detection is aggressive on rapid loads
+  if (page === 0) await dismiss_cookie_banner()
 
-    if page == 0:
-        dismiss_cookie_banner()
-
-    batch_json = js("""
+  const batch_json = await js(`
     (function() {
       var cards = document.querySelectorAll('[data-jk]');
       var out = [];
@@ -242,19 +235,19 @@ for page in range(3):   # 3 pages = up to ~30 results
       }
       return JSON.stringify(out.filter(j => j.title));
     })()
-    """)
+    `)
 
-    batch = json.loads(batch_json)
-    if not batch:
-        break   # no results on this page — stop
-    all_jobs.extend(batch)
+  const batch = JSON.parse(batch_json)
+  if (!batch.length) break   // no results on this page — stop
+  all_jobs.push(...batch)
+}
 
-print(f"Collected {len(all_jobs)} jobs across {page+1} pages")
+console.log(`Collected ${all_jobs.length} jobs across ${Math.min(page + 1, 3)} pages`)
 ```
 
 **For `fromage` (date filter) + pagination**: keep the `fromage` param in the base URL:
-```python
-base_url = f"https://www.indeed.com/jobs?q={quote_plus(query)}&l={quote_plus(location)}&fromage=1"
+```ts
+const base_url = `https://www.indeed.com/jobs?q=${encodeURIComponent(query)}&l=${encodeURIComponent(location)}&fromage=1`
 ```
 
 ---
@@ -263,16 +256,14 @@ base_url = f"https://www.indeed.com/jobs?q={quote_plus(query)}&l={quote_plus(loc
 
 Fetch the full job description from the detail page. The `viewjob?jk=` URL is canonical and stable.
 
-```python
-import json, re
+```ts
+/** Fetch full job details from an Indeed job key. */
+async function get_indeed_job_detail(jk: string): Promise<any> {
+  await goto(`https://www.indeed.com/viewjob?jk=${jk}`)
+  await wait_for_load()
+  await wait(2)
 
-def get_indeed_job_detail(jk: str) -> dict:
-    """Fetch full job details from an Indeed job key."""
-    goto(f"https://www.indeed.com/viewjob?jk={jk}")
-    wait_for_load()
-    wait(2)
-
-    detail = js("""
+  const detail = await js(`
     (function() {
       // Title
       var titleEl = document.querySelector('[data-testid="jobsearch-JobInfoHeader-title"], h1.jobsearch-JobInfoHeader-title');
@@ -304,13 +295,14 @@ def get_indeed_job_detail(jk: str) -> dict:
 
       return JSON.stringify({title, company, location, salary, jobType, description, externalUrl});
     })()
-    """)
-    return json.loads(detail)
+    `)
+  return JSON.parse(detail)
+}
 
-# Example
-detail = get_indeed_job_detail("abc123def456xyz")
-print(detail["title"], "—", detail["salary"])
-print(detail["description"][:500])  # first 500 chars
+// Example
+const detail = await get_indeed_job_detail("abc123def456xyz")
+console.log(detail.title, "—", detail.salary)
+console.log(detail.description.slice(0, 500))  // first 500 chars
 ```
 
 ---
@@ -319,20 +311,17 @@ print(detail["description"][:500])  # first 500 chars
 
 Glassdoor shows a login modal after a few scrolls. Extract cards from the first visible load before triggering that wall.
 
-```python
-import json
-from urllib.parse import quote_plus
+```ts
+const query = "product manager"
+await goto(`https://www.glassdoor.com/Job/jobs.htm?sc.keyword=${encodeURIComponent(query)}`)
+await wait_for_load()
+await wait(3)   // Glassdoor JS rendering takes longer
 
-query = "product manager"
-goto(f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={quote_plus(query)}")
-wait_for_load()
-wait(3)   # Glassdoor JS rendering takes longer
+// Dismiss cookie banner if present
+await dismiss_cookie_banner()
 
-# Dismiss cookie banner if present
-dismiss_cookie_banner()
-
-# Extract cards before any scroll (avoid triggering login modal)
-jobs = js("""
+// Extract cards before any scroll (avoid triggering login modal)
+const jobs = await js(`
 (function() {
   // Glassdoor job cards: li[data-jobid] or article[data-id]
   var cards = document.querySelectorAll('li[data-jobid], li[class*="JobsList_jobListItem"]');
@@ -375,18 +364,17 @@ jobs = js("""
   }
   return JSON.stringify(out);
 })()
-""")
+`)
 
-results = json.loads(jobs)
-for r in results:
-    print(r)
+const results = JSON.parse(jobs)
+for (const r of results) console.log(r)
 ```
 
 **If `jobs` returns an empty list**, Glassdoor has changed its DOM structure. Take a screenshot and inspect:
 
-```python
-screenshot()
-# Look for the actual card selector, then update the querySelectorAll above
+```ts
+await screenshot()
+// Look for the actual card selector, then update the querySelectorAll above
 ```
 
 ---
@@ -395,10 +383,10 @@ screenshot()
 
 Glassdoor increasingly shows a login modal after viewing a few listings. Detect and dismiss it.
 
-```python
-def dismiss_glassdoor_login_modal():
-    """Close the Glassdoor sign-in / register modal if it appears."""
-    closed = js("""
+```ts
+/** Close the Glassdoor sign-in / register modal if it appears. */
+async function dismiss_glassdoor_login_modal() {
+  const closed = await js(`
     (function() {
       // Close button on the modal
       var closeBtn = document.querySelector(
@@ -416,17 +404,18 @@ def dismiss_glassdoor_login_modal():
       }
       return null;
     })()
-    """)
-    if closed:
-        wait(1)
-    return closed
+    `)
+  if (closed) await wait(1)
+  return closed
+}
 
-# Strategy: extract as much as possible before the modal appears
-# If the modal blocks results, dismiss it and try again
-result = dismiss_glassdoor_login_modal()
-if result:
-    wait(1)
-    # Re-run extraction after dismissal
+// Strategy: extract as much as possible before the modal appears
+// If the modal blocks results, dismiss it and try again
+const result = await dismiss_glassdoor_login_modal()
+if (result) {
+  await wait(1)
+  // Re-run extraction after dismissal
+}
 ```
 
 If the modal is persistent and cannot be closed, switch to Indeed for the same search — it has more accessible public results.
@@ -437,23 +426,20 @@ If the modal is persistent and cannot be closed, switch to Indeed for the same s
 
 Stepstone is server-rendered. Most data can be extracted with `http_get` for speed, or via `goto` + `js()` for dynamic content.
 
-```python
-import json, re
-from urllib.parse import quote_plus
+```ts
+const keyword = "Sachbearbeiter Einkauf"
+const city = "Regensburg"
 
-keyword = "Sachbearbeiter Einkauf"
-city = "Regensburg"
+// Stepstone encodes keyword/city in the path
+const kw_path = keyword.replaceAll(" ", "-")
+const city_path = city.replaceAll(" ", "-")
 
-# Stepstone encodes keyword/city in the path
-kw_path = keyword.replace(" ", "-")
-city_path = city.replace(" ", "-")
+await goto(`https://www.stepstone.de/jobs/${kw_path}/in-${city_path}.html`)
+await wait_for_load()
+await wait(2)
+await dismiss_cookie_banner()
 
-goto(f"https://www.stepstone.de/jobs/{kw_path}/in-{city_path}.html")
-wait_for_load()
-wait(2)
-dismiss_cookie_banner()
-
-jobs = js("""
+const jobs = await js(`
 (function() {
   // Stepstone result cards
   var cards = document.querySelectorAll(
@@ -484,33 +470,28 @@ jobs = js("""
   }
   return JSON.stringify(out);
 })()
-""")
+`)
 
-results = json.loads(jobs)
-for r in results:
-    print(r)
+const results = JSON.parse(jobs)
+for (const r of results) console.log(r)
 ```
 
 ### Stepstone pagination
 
-```python
-import json
+```ts
+const all_jobs: any[] = []
+for (let page = 1; page < 4; page++) {   // pages 1-3
+  const url = page === 1
+    ? `https://www.stepstone.de/jobs/${kw_path}/in-${city_path}.html`
+    : `https://www.stepstone.de/jobs/${kw_path}/in-${city_path}/page-${page}.html`
 
-all_jobs = []
-for page in range(1, 4):   # pages 1-3
-    if page == 1:
-        url = f"https://www.stepstone.de/jobs/{kw_path}/in-{city_path}.html"
-    else:
-        url = f"https://www.stepstone.de/jobs/{kw_path}/in-{city_path}/page-{page}.html"
+  await goto(url)
+  await wait_for_load()
+  await wait(2)
 
-    goto(url)
-    wait_for_load()
-    wait(2)
+  if (page === 1) await dismiss_cookie_banner()
 
-    if page == 1:
-        dismiss_cookie_banner()
-
-    batch_json = js("""
+  const batch_json = await js(`
     (function() {
       var cards = document.querySelectorAll('article[data-at="job-item"], [data-genesis-element="JOB_CARD"]');
       var out = [];
@@ -530,14 +511,14 @@ for page in range(1, 4):   # pages 1-3
       }
       return JSON.stringify(out.filter(j => j.title));
     })()
-    """)
+    `)
 
-    batch = json.loads(batch_json)
-    if not batch:
-        break
-    all_jobs.extend(batch)
+  const batch = JSON.parse(batch_json)
+  if (!batch.length) break
+  all_jobs.push(...batch)
+}
 
-print(f"Stepstone: {len(all_jobs)} jobs collected")
+console.log(`Stepstone: ${all_jobs.length} jobs collected`)
 ```
 
 ---
@@ -546,32 +527,32 @@ print(f"Stepstone: {len(all_jobs)} jobs collected")
 
 Indeed search result links go through a tracking redirect. **Do not use those redirect URLs.** Instead, extract the `data-jk` attribute directly for the stable canonical URL.
 
-```python
-# Correct approach: extract data-jk from the card
-job_keys = js("""
+```ts
+// Correct approach: extract data-jk from the card
+const job_keys = await js(`
 JSON.stringify(
   Array.from(document.querySelectorAll('[data-jk]'))
     .map(el => el.getAttribute('data-jk'))
     .filter(jk => jk && jk.length > 0)
     .filter((jk, i, arr) => arr.indexOf(jk) === i)  // dedupe
 )
-""")
-import json
-jks = json.loads(job_keys)
+`)
+const jks: string[] = JSON.parse(job_keys)
 
-# Canonical job detail URL for any job key:
-for jk in jks:
-    direct_url = f"https://www.indeed.com/viewjob?jk={jk}"
-    print(direct_url)
+// Canonical job detail URL for any job key:
+for (const jk of jks) {
+  const direct_url = `https://www.indeed.com/viewjob?jk=${jk}`
+  console.log(direct_url)
+}
 ```
 
 If you already have a redirect URL and need to extract the `jk` from it:
 
-```python
-import re
-def extract_jk(url: str) -> str | None:
-    m = re.search(r'[?&]jk=([a-f0-9]+)', url)
-    return m.group(1) if m else None
+```ts
+function extract_jk(url: string): string | null {
+  const m = url.match(/[?&]jk=([a-f0-9]+)/)
+  return m ? m[1] : null
+}
 ```
 
 ---
@@ -582,57 +563,53 @@ Salary appears in different places and formats depending on the job and site.
 
 ### Indeed salary patterns
 
-```python
-import re
+```ts
+/**
+ * Parse Indeed salary strings like:
+ *   "$85,000 - $110,000 a year"
+ *   "Up to $65 an hour"
+ *   "$25 - $30 an hour"
+ *   "From $120,000 a year"
+ *   "Employer est.: $90,000 - $120,000 a year"
+ * Returns: {low, high, period, source}
+ */
+function parse_indeed_salary(raw: string) {
+  if (!raw) return { raw, low: null, high: null, period: null, source: null }
 
-def parse_indeed_salary(raw: str) -> dict:
-    """
-    Parse Indeed salary strings like:
-      "$85,000 - $110,000 a year"
-      "Up to $65 an hour"
-      "$25 - $30 an hour"
-      "From $120,000 a year"
-      "Employer est.: $90,000 - $120,000 a year"
-    Returns: {low, high, period, source}
-    """
-    if not raw:
-        return {"raw": raw, "low": None, "high": None, "period": None, "source": None}
+  let source: string | null = null
+  if (raw.includes("Employer est.")) {
+    source = "employer"
+    raw = raw.replace("Employer est.:", "").trim()
+  } else if (raw.includes("Glassdoor est.")) {
+    source = "glassdoor"
+    raw = raw.replace("Glassdoor est.:", "").trim()
+  }
 
-    source = None
-    if "Employer est." in raw:
-        source = "employer"
-        raw = raw.replace("Employer est.:", "").strip()
-    elif "Glassdoor est." in raw:
-        source = "glassdoor"
-        raw = raw.replace("Glassdoor est.:", "").strip()
+  const raw_clean = raw.replaceAll(",", "")
 
-    raw_clean = raw.replace(",", "")
+  // Period
+  let period: string | null = null
+  if (raw.includes("a year") || raw.includes("per year") || raw.includes("/yr")) period = "year"
+  else if (raw.includes("an hour") || raw.includes("per hour") || raw.includes("/hr")) period = "hour"
+  else if (raw.includes("a month") || raw.includes("per month")) period = "month"
 
-    # Period
-    period = None
-    if "a year" in raw or "per year" in raw or "/yr" in raw:
-        period = "year"
-    elif "an hour" in raw or "per hour" in raw or "/hr" in raw:
-        period = "hour"
-    elif "a month" in raw or "per month" in raw:
-        period = "month"
+  // Range: two dollar amounts
+  const range_m = [...raw_clean.matchAll(/\$?([\d]+(?:\.\d+)?)/g)].map((m) => m[1])
+  const low  = range_m.length >= 1 ? parseFloat(range_m[0]) : null
+  const high = range_m.length >= 2 ? parseFloat(range_m[1]) : low
 
-    # Range: two dollar amounts
-    range_m = re.findall(r'\$?([\d]+(?:\.\d+)?)', raw_clean)
-    low  = float(range_m[0]) if len(range_m) >= 1 else None
-    high = float(range_m[1]) if len(range_m) >= 2 else low
+  return { raw, low, high, period, source }
+}
 
-    return {"raw": raw, "low": low, "high": high, "period": period, "source": source}
-
-# Examples
+// Examples
 parse_indeed_salary("$85,000 - $110,000 a year")
-# -> {"low": 85000.0, "high": 110000.0, "period": "year", "source": None}
+// -> {low: 85000, high: 110000, period: "year", source: null}
 
 parse_indeed_salary("Employer est.: $90,000 - $120,000 a year")
-# -> {"low": 90000.0, "high": 120000.0, "period": "year", "source": "employer"}
+// -> {low: 90000, high: 120000, period: "year", source: "employer"}
 
 parse_indeed_salary("Up to $65 an hour")
-# -> {"low": 65.0, "high": 65.0, "period": "hour", "source": None}
+// -> {low: 65, high: 65, period: "hour", source: null}
 ```
 
 ### Glassdoor salary note
@@ -651,49 +628,32 @@ If the salary is absent in the search result card, it is only available on the j
 
 All three sites use relative timestamps. Convert to absolute dates when needed.
 
-```python
-import re
-from datetime import datetime, timedelta
+```ts
+/**
+ * Convert relative job posting dates to Date objects.
+ * Handles: "Just posted", "Today", "1 day ago", "3 days ago", "30+ days ago"
+ */
+function parse_relative_date(text: string, reference_date: Date = new Date()): Date | null {
+  text = text.trim().toLowerCase()
+  const ago = (ms: number) => new Date(reference_date.getTime() - ms)
+  const num = () => { const m = text.match(/(\d+)/); return m ? parseInt(m[1]) : 1 }
+  const HOUR = 3600e3, DAY = 24 * HOUR
 
-def parse_relative_date(text: str, reference_date: datetime = None) -> datetime | None:
-    """
-    Convert relative job posting dates to datetime objects.
-    Handles: "Just posted", "Today", "1 day ago", "3 days ago", "30+ days ago"
-    """
-    if reference_date is None:
-        reference_date = datetime.utcnow()
+  if (!text || text === "unknown") return null
+  if (["just posted", "today", "active today"].includes(text)) return reference_date
+  if (text.includes("hour")) return ago(num() * HOUR)
+  if (text.includes("day")) return ago(num() * DAY)
+  if (text.includes("week")) return ago(num() * 7 * DAY)
+  if (text.includes("month")) return ago(num() * 30 * DAY)
+  if (text.includes("30+")) return ago(30 * DAY)
 
-    text = text.strip().lower()
+  return null  // unparseable
+}
 
-    if not text or text in ("", "unknown"):
-        return None
-    if text in ("just posted", "today", "active today"):
-        return reference_date
-    if "hour" in text:
-        m = re.search(r'(\d+)', text)
-        hours = int(m.group(1)) if m else 1
-        return reference_date - timedelta(hours=hours)
-    if "day" in text:
-        m = re.search(r'(\d+)', text)
-        days = int(m.group(1)) if m else 1
-        return reference_date - timedelta(days=days)
-    if "week" in text:
-        m = re.search(r'(\d+)', text)
-        weeks = int(m.group(1)) if m else 1
-        return reference_date - timedelta(weeks=weeks)
-    if "month" in text:
-        m = re.search(r'(\d+)', text)
-        months = int(m.group(1)) if m else 1
-        return reference_date - timedelta(days=months * 30)
-    if "30+" in text:
-        return reference_date - timedelta(days=30)
-
-    return None  # unparseable
-
-# Examples
-parse_relative_date("3 days ago")    # datetime ~3 days before now
-parse_relative_date("Just posted")  # datetime.utcnow()
-parse_relative_date("30+ days ago") # datetime 30 days ago
+// Examples
+parse_relative_date("3 days ago")    // Date ~3 days before now
+parse_relative_date("Just posted")  // new Date()
+parse_relative_date("30+ days ago") // Date 30 days ago
 ```
 
 ---
@@ -702,70 +662,63 @@ parse_relative_date("30+ days ago") # datetime 30 days ago
 
 For Indeed, the raw HTML of search results contains structured JSON in a `window.mosaic.providerData` script tag. This is faster and more reliable than DOM extraction.
 
-```python
-import json, re
-from urllib.parse import quote_plus
+```ts
+const quote_plus = (s: string) => encodeURIComponent(s).replace(/%20/g, "+")
 
-def indeed_http_search(query: str, location: str = "", fromage: int = 0, start: int = 0) -> list[dict]:
-    """
-    Extract Indeed jobs via HTTP (no browser). Parses the embedded JSON payload.
-    Returns up to ~15 jobs per call.
-    """
-    params = f"q={quote_plus(query)}&l={quote_plus(location)}&start={start}"
-    if fromage:
-        params += f"&fromage={fromage}"
+/**
+ * Extract Indeed jobs via HTTP (no browser). Parses the embedded JSON payload.
+ * Returns up to ~15 jobs per call.
+ */
+async function indeed_http_search(query: string, location = "", fromage = 0, start = 0): Promise<any[]> {
+  let params = `q=${quote_plus(query)}&l=${quote_plus(location)}&start=${start}`
+  if (fromage) params += `&fromage=${fromage}`
 
-    html = http_get(
-        f"https://www.indeed.com/jobs?{params}",
-        headers={
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept": "text/html,application/xhtml+xml",
-        }
-    )
+  const html = await http_get(
+    `https://www.indeed.com/jobs?${params}`,
+    {
+      "Accept-Language": "en-US,en;q=0.9",
+      "Accept": "text/html,application/xhtml+xml",
+    },
+  )
 
-    # Check for CAPTCHA before parsing
-    if "captcha" in html.lower() or "robot check" in html.lower():
-        return []  # fall back to browser-based extraction
+  // Check for CAPTCHA before parsing
+  if (html.toLowerCase().includes("captcha") || html.toLowerCase().includes("robot check")) {
+    return []  // fall back to browser-based extraction
+  }
 
-    # Indeed embeds job data in window.mosaic.providerData["mosaic-provider-jobcards"]
-    m = re.search(
-        r'window\.mosaic\.providerData\["mosaic-provider-jobcards"\]\s*=\s*(\{.*?\});',
-        html, re.DOTALL
-    )
-    if not m:
-        return []
+  // Indeed embeds job data in window.mosaic.providerData["mosaic-provider-jobcards"]
+  const m = html.match(
+    /window\.mosaic\.providerData\["mosaic-provider-jobcards"\]\s*=\s*(\{[\s\S]*?\});/,
+  )
+  if (!m) return []
 
-    try:
-        data = json.loads(m.group(1))
-    except json.JSONDecodeError:
-        return []
+  let data: any
+  try {
+    data = JSON.parse(m[1])
+  } catch {
+    return []
+  }
 
-    results_list = (
-        data
-        .get("metaData", {})
-        .get("mosaicProviderJobCardsModel", {})
-        .get("results", [])
-    )
+  const results_list = data?.metaData?.mosaicProviderJobCardsModel?.results ?? []
 
-    jobs = []
-    for r in results_list:
-        jk = r.get("jobkey", "")
-        jobs.append({
-            "jk":       jk,
-            "title":    r.get("title", ""),
-            "company":  r.get("company", ""),
-            "location": r.get("formattedLocation", ""),
-            "salary":   r.get("salarySnippet", {}).get("text", ""),
-            "posted":   r.get("formattedRelativeTime", ""),
-            "url":      f"https://www.indeed.com/viewjob?jk={jk}",
-            "snippet":  r.get("snippet", ""),  # short description preview
-        })
-    return jobs
+  return results_list.map((r: any) => {
+    const jk = r.jobkey ?? ""
+    return {
+      jk,
+      title:    r.title ?? "",
+      company:  r.company ?? "",
+      location: r.formattedLocation ?? "",
+      salary:   r.salarySnippet?.text ?? "",
+      posted:   r.formattedRelativeTime ?? "",
+      url:      `https://www.indeed.com/viewjob?jk=${jk}`,
+      snippet:  r.snippet ?? "",  // short description preview
+    }
+  })
+}
 
-# Example — last 24h remote jobs
-jobs = indeed_http_search("software engineer", "remote", fromage=1)
-for j in jobs:
-    print(j["title"], "|", j["company"], "|", j["salary"])
+// Example — last 24h remote jobs
+const jobs = await indeed_http_search("software engineer", "remote", 1)
+for (const j of jobs) console.log(j.title, "|", j.company, "|", j.salary)
 ```
 
 If `http_get` returns 0 results (CAPTCHA or structure change), fall back to the `goto` + `js()` browser workflow above.
@@ -776,14 +729,14 @@ If `http_get` returns 0 results (CAPTCHA or structure change), fall back to the 
 
 Some Indeed listings apply on Indeed directly ("Easy Apply") while others redirect to the company site. Detect which type before deciding what to do.
 
-```python
-def get_application_type(jk: str) -> dict:
-    """Returns {type: 'easy_apply'|'external'|'unknown', external_url: str|None}"""
-    goto(f"https://www.indeed.com/viewjob?jk={jk}")
-    wait_for_load()
-    wait(2)
+```ts
+/** Returns {type: 'easy_apply'|'external'|'unknown', externalUrl: string|null} */
+async function get_application_type(jk: string): Promise<any> {
+  await goto(`https://www.indeed.com/viewjob?jk=${jk}`)
+  await wait_for_load()
+  await wait(2)
 
-    return js("""
+  return await js(`
     (function() {
       // "Apply now" button pointing to /applystart = indeed-hosted Easy Apply
       var easyBtn = document.querySelector(
@@ -805,7 +758,8 @@ def get_application_type(jk: str) -> dict:
       }
       return {type: 'unknown', externalUrl: null};
     })()
-    """)
+    `)
+}
 ```
 
 ---
@@ -816,48 +770,50 @@ Indeed and Glassdoor have active bot detection. Violating these limits leads to 
 
 ### Safe request cadence
 
-```python
-# Minimum wait between page loads
-INTER_PAGE_WAIT = 2.5   # seconds — don't go below 2
+```ts
+// Minimum wait between page loads
+const INTER_PAGE_WAIT = 2.5   // seconds — don't go below 2
 
-# Between job detail page fetches
-INTER_DETAIL_WAIT = 3.0  # seconds
+// Between job detail page fetches
+const INTER_DETAIL_WAIT = 3.0  // seconds
 
-# http_get concurrency limit
-MAX_HTTP_CONCURRENT = 2  # never more than 2 at once for Indeed/Glassdoor
+// http_get concurrency limit
+const MAX_HTTP_CONCURRENT = 2  // never more than 2 at once for Indeed/Glassdoor
 ```
 
 ### CAPTCHA detection
 
-```python
-def is_captcha_page() -> bool:
-    """Check if the current page is a CAPTCHA or block page."""
-    url = page_info()["url"]
-    title = js("document.title") or ""
-    body_text = js("document.body ? document.body.innerText.substring(0, 500) : ''") or ""
+```ts
+/** Check if the current page is a CAPTCHA or block page. */
+async function is_captcha_page(): Promise<boolean> {
+  const url: string = (await page_info()).url
+  const title: string = (await js("document.title")) || ""
+  const body_text: string = (await js("document.body ? document.body.innerText.substring(0, 500) : ''")) || ""
 
-    signals = [
-        "captcha" in url.lower(),
-        "robot" in title.lower(),
-        "are you a human" in body_text.lower(),
-        "verify you are human" in body_text.lower(),
-        "unusual traffic" in body_text.lower(),
-        "indeed.com/error" in url,
-        "sorry" in title.lower() and "indeed" in url,
-    ]
-    return any(signals)
+  const signals = [
+    url.toLowerCase().includes("captcha"),
+    title.toLowerCase().includes("robot"),
+    body_text.toLowerCase().includes("are you a human"),
+    body_text.toLowerCase().includes("verify you are human"),
+    body_text.toLowerCase().includes("unusual traffic"),
+    url.includes("indeed.com/error"),
+    title.toLowerCase().includes("sorry") && url.includes("indeed"),
+  ]
+  return signals.some(Boolean)
+}
 
-# Use after every goto:
-goto(some_url)
-wait_for_load()
-wait(2)
-if is_captcha_page():
-    screenshot()
-    # Wait longer and retry once
-    wait(10)
-    goto(some_url)
-    wait_for_load()
-    wait(3)
+// Use after every goto:
+await goto(some_url)
+await wait_for_load()
+await wait(2)
+if (await is_captcha_page()) {
+  await screenshot()
+  // Wait longer and retry once
+  await wait(10)
+  await goto(some_url)
+  await wait_for_load()
+  await wait(3)
+}
 ```
 
 ### Glassdoor session hygiene
@@ -875,66 +831,63 @@ Glassdoor's bot detection is more fingerprint-based. If results stop loading:
 
 ### Indeed URL filter parameters
 
-```python
-from urllib.parse import quote_plus
+```ts
+function build_indeed_url(
+  query: string,
+  { location = "", fromage = 0, job_type = "", remote = false, start = 0 }: {
+    location?: string
+    fromage?: number      // days: 1=last 24h, 3=last 3 days, 7=last week
+    job_type?: string     // "fulltime", "parttime", "contract", "internship", "temporary"
+    remote?: boolean
+    start?: number
+  } = {},
+): string {
+  const quote_plus = (s: string) => encodeURIComponent(s).replace(/%20/g, "+")
+  let base = `https://www.indeed.com/jobs?q=${quote_plus(query)}&l=${quote_plus(location)}`
+  if (fromage) base += `&fromage=${fromage}`
+  if (job_type) base += `&jt=${job_type}`
+  if (remote) base += "&remotejob=032b3046-06a3-4876-8dfd-474eb5e7ed11"
+  if (start) base += `&start=${start}`
+  return base
+}
 
-def build_indeed_url(
-    query: str,
-    location: str = "",
-    fromage: int = 0,       # days: 1=last 24h, 3=last 3 days, 7=last week
-    job_type: str = "",     # "fulltime", "parttime", "contract", "internship", "temporary"
-    remote: bool = False,
-    start: int = 0,
-) -> str:
-    base = f"https://www.indeed.com/jobs?q={quote_plus(query)}&l={quote_plus(location)}"
-    if fromage:
-        base += f"&fromage={fromage}"
-    if job_type:
-        base += f"&jt={job_type}"
-    if remote:
-        base += "&remotejob=032b3046-06a3-4876-8dfd-474eb5e7ed11"
-    if start:
-        base += f"&start={start}"
-    return base
-
-# Examples
-url = build_indeed_url("backend engineer", "Austin, TX", fromage=7, job_type="fulltime")
-url = build_indeed_url("data analyst", remote=True, fromage=1)
+// Examples
+let url = build_indeed_url("backend engineer", { location: "Austin, TX", fromage: 7, job_type: "fulltime" })
+url = build_indeed_url("data analyst", { remote: true, fromage: 1 })
 ```
 
 ---
 
 ## Collecting N results across pages
 
-```python
-import json
-from urllib.parse import quote_plus
+```ts
+/**
+ * Collect up to max_results jobs from Indeed across multiple pages.
+ * Waits between pages to avoid bot detection.
+ */
+async function collect_indeed_jobs(
+  query: string,
+  { location = "", max_results = 20, fromage = 0, job_type = "" } = {},
+): Promise<any[]> {
+  const all_jobs: any[] = []
+  const seen_jks = new Set<string>()
+  let page = 0
 
-def collect_indeed_jobs(query: str, location: str = "", max_results: int = 20,
-                        fromage: int = 0, job_type: str = "") -> list[dict]:
-    """
-    Collect up to max_results jobs from Indeed across multiple pages.
-    Waits between pages to avoid bot detection.
-    """
-    all_jobs = []
-    seen_jks = set()
-    page = 0
+  while (all_jobs.length < max_results) {
+    const start = page * 10
+    const url = build_indeed_url(query, { location, fromage, job_type, start })
+    await goto(url)
+    await wait_for_load()
+    await wait(2.5)
 
-    while len(all_jobs) < max_results:
-        start = page * 10
-        url = build_indeed_url(query, location, fromage=fromage, job_type=job_type, start=start)
-        goto(url)
-        wait_for_load()
-        wait(2.5)
+    if (page === 0) await dismiss_cookie_banner()
 
-        if page == 0:
-            dismiss_cookie_banner()
+    if (await is_captcha_page()) {
+      console.log(`CAPTCHA on page ${page + 1}, stopping`)
+      break
+    }
 
-        if is_captcha_page():
-            print(f"CAPTCHA on page {page+1}, stopping")
-            break
-
-        batch_json = js("""
+    const batch_json = await js(`
         (function() {
           var cards = document.querySelectorAll('[data-jk]');
           var out = [];
@@ -959,23 +912,24 @@ def collect_indeed_jobs(query: str, location: str = "", max_results: int = 20,
           }
           return JSON.stringify(out.filter(j => j.title && j.jk));
         })()
-        """)
+        `)
 
-        batch = json.loads(batch_json)
-        if not batch:
-            break  # no more results
+    const batch = JSON.parse(batch_json)
+    if (!batch.length) break  // no more results
 
-        new_jobs = [j for j in batch if j["jk"] not in seen_jks]
-        seen_jks.update(j["jk"] for j in new_jobs)
-        all_jobs.extend(new_jobs)
-        page += 1
+    const new_jobs = batch.filter((j: any) => !seen_jks.has(j.jk))
+    for (const j of new_jobs) seen_jks.add(j.jk)
+    all_jobs.push(...new_jobs)
+    page += 1
+  }
 
-    return all_jobs[:max_results]
+  return all_jobs.slice(0, max_results)
+}
 
-# Examples
-jobs = collect_indeed_jobs("Python developer", "San Francisco", max_results=20)
-jobs = collect_indeed_jobs("remote software engineer", fromage=1, max_results=10)
-jobs = collect_indeed_jobs("machine learning engineer", max_results=30, fromage=7, job_type="fulltime")
+// Examples
+let jobs = await collect_indeed_jobs("Python developer", { location: "San Francisco", max_results: 20 })
+jobs = await collect_indeed_jobs("remote software engineer", { fromage: 1, max_results: 10 })
+jobs = await collect_indeed_jobs("machine learning engineer", { max_results: 30, fromage: 7, job_type: "fulltime" })
 ```
 
 ---
@@ -994,7 +948,7 @@ jobs = collect_indeed_jobs("machine learning engineer", max_results=30, fromage=
 
 - **Glassdoor public results are limited** — Without login, Glassdoor shows ~10-15 cards. If the task requires 30+ results, use Indeed instead (no login required, up to ~15 per page with full pagination).
 
-- **Stepstone uses path-based URL routing, not query params** — Spaces in keyword or city must be replaced with `-` for the path, not `%20` or `+`. `quote_plus()` is wrong for path segments. Use `.replace(" ", "-")`.
+- **Stepstone uses path-based URL routing, not query params** — Spaces in keyword or city must be replaced with `-` for the path, not `%20` or `+`. `encodeURIComponent()` / `quote_plus()` is wrong for path segments. Use `.replaceAll(" ", "-")`.
 
 - **Stepstone pagination is in the path** — `/page-2.html`, `/page-3.html` — not `?page=2`. There is no `&start=N` param as in Indeed.
 
@@ -1002,7 +956,7 @@ jobs = collect_indeed_jobs("machine learning engineer", max_results=30, fromage=
 
 - **Indeed embeds JSON in a `<script>` tag** — The `window.mosaic.providerData` block in the HTML source is the fastest extraction path but it can break if Indeed changes the key. Always have the DOM-based `js()` approach as a fallback.
 
-- **Date strings are relative, not absolute** — "3 days ago", "30+ days ago", "Just posted" — none of these are machine-parseable dates without a reference point. Use `datetime.utcnow()` as the reference. "30+" means at least 30 days ago; treat as stale.
+- **Date strings are relative, not absolute** — "3 days ago", "30+ days ago", "Just posted" — none of these are machine-parseable dates without a reference point. Use `new Date()` as the reference. "30+" means at least 30 days ago; treat as stale.
 
 - **`fromage=1` on Indeed means "last 24 hours" but uses the listing creation date, not the apply-by date** — Fresh listings can appear in `fromage=3` results a day later due to indexing lag.
 
@@ -1010,7 +964,7 @@ jobs = collect_indeed_jobs("machine learning engineer", max_results=30, fromage=
 
 - **Glassdoor location IDs for `locT=C&locId=`** — Programmatic location filtering by ID requires a separate city-ID lookup (Glassdoor's internal city registry). For basic scraping, omit `locId` and use `locKeyword=` with the city name instead — results are less precise but don't require a lookup step.
 
-- **User-agent matters** — `http_get` uses `Mozilla/5.0` by default (see `helpers.py`). For Indeed `http_get`, also set `Accept-Language: en-US,en;q=0.9` to avoid getting German or localized results based on IP geolocation.
+- **User-agent matters** — `http_get` uses `Mozilla/5.0` by default (see `helpers.ts`). For Indeed `http_get`, also set `Accept-Language: en-US,en;q=0.9` to avoid getting German or localized results based on IP geolocation.
 
 - **Stepstone cookie modal is fullscreen** — On first load, Stepstone shows a fullscreen consent overlay that blocks the entire page. Always call `dismiss_cookie_banner()` before any extraction. If the overlay cannot be dismissed with the generic pattern, use a coordinate click: `screenshot()` first to find the "Alle akzeptieren" (Accept all) button position, then `click(x, y)`.
 

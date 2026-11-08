@@ -10,17 +10,19 @@ Browser dialogs (`alert`, `confirm`, `prompt`, `beforeunload`) freeze the JS thr
 
 Works even when JS is frozen. Handles all dialog types including `beforeunload`.
 
-```python
-# Dismiss and read the message
-cdp("Page.handleJavaScriptDialog", accept=True)   # accept / click OK
-cdp("Page.handleJavaScriptDialog", accept=False)  # cancel / click Cancel
+```ts
+// Dismiss and read the message
+await cdp("Page.handleJavaScriptDialog", {accept: true})   // accept / click OK
+await cdp("Page.handleJavaScriptDialog", {accept: false})  // cancel / click Cancel
 
-# Read what the dialog said (from buffered CDP events)
-events = drain_events()
-for e in events:
-    if e["method"] == "Page.javascriptDialogOpening":
-        print(e["params"]["type"])     # "alert", "confirm", "prompt", "beforeunload"
-        print(e["params"]["message"])  # the dialog text
+// Read what the dialog said (from buffered CDP events)
+const events = await drain_events()
+for (const e of events) {
+  if (e.method === "Page.javascriptDialogOpening") {
+    console.log(e.params.type)     // "alert", "confirm", "prompt", "beforeunload"
+    console.log(e.params.message)  // the dialog text
+  }
+}
 ```
 
 Undetectable by antibot — no JS injected into the page.
@@ -29,15 +31,15 @@ Undetectable by antibot — no JS injected into the page.
 
 Prevents dialogs from ever appearing. Good when you expect multiple `alert()`/`confirm()` calls in sequence.
 
-```python
-js("""
+```ts
+await js(`
 window.__dialogs__=[];
 window.alert=m=>window.__dialogs__.push(String(m));
 window.confirm=m=>{window.__dialogs__.push(String(m));return true;};
 window.prompt=(m,d)=>{window.__dialogs__.push(String(m));return d||'';};
-""")
-# ... do actions that trigger dialogs ...
-msgs = js("window.__dialogs__||[]")
+`)
+// ... do actions that trigger dialogs ...
+const msgs = await js("window.__dialogs__||[]")
 ```
 
 Tradeoffs:
@@ -50,15 +52,16 @@ Tradeoffs:
 
 Fires when navigating away from a page with unsaved changes (forms, editors, upload pages). The page freezes until the user clicks Leave/Stay.
 
-```python
-# Option A: dismiss after navigating (CDP-level, safe)
-goto("https://new-url.com")
-try:
-    cdp("Page.handleJavaScriptDialog", accept=True)  # click "Leave"
-except:
-    pass  # no dialog — normal
+```ts
+// Option A: dismiss after navigating (CDP-level, safe)
+await goto("https://new-url.com")
+try {
+  await cdp("Page.handleJavaScriptDialog", {accept: true})  // click "Leave"
+} catch {
+  // no dialog — normal
+}
 
-# Option B: prevent before navigating (JS injection, detectable)
-js("window.onbeforeunload=null")
-goto("https://new-url.com")
+// Option B: prevent before navigating (JS injection, detectable)
+await js("window.onbeforeunload=null")
+await goto("https://new-url.com")
 ```

@@ -26,33 +26,26 @@ client or includes a recognizable browser fingerprint triggers the JS challenge 
 
 ### Base fetch helper
 
-```python
-import json, re, gzip, urllib.request
+```ts
+// Fetch any walmart.com page. Returns decoded HTML string.
+// Throws if the PerimeterX bot challenge is returned.
+async function fetch_walmart(url: string): Promise<string> {
+  const r = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0", "Accept-Encoding": "gzip" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const html = await r.text(); // fetch decompresses gzip automatically
+  if (html.includes("Robot or human")) {
+    throw new Error(`PerimeterX challenge triggered: ${url}`);
+  }
+  return html;
+}
 
-def fetch_walmart(url):
-    """
-    Fetch any walmart.com page.
-    Returns decoded HTML string.
-    Raises RuntimeError if PerimeterX bot challenge is returned.
-    """
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "Mozilla/5.0", "Accept-Encoding": "gzip"},
-    )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        data = r.read()
-        if r.headers.get("Content-Encoding") == "gzip":
-            data = gzip.decompress(data)
-        html = data.decode()
-    if "Robot or human" in html:
-        raise RuntimeError(f"PerimeterX challenge triggered: {url}")
-    return html
-
-def parse_next_data(html):
-    m = re.search(r'id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
-    if not m:
-        raise ValueError("__NEXT_DATA__ not found — page structure may have changed")
-    return json.loads(m.group(1))
+function parse_next_data(html: string): any {
+  const m = html.match(/id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) throw new Error("__NEXT_DATA__ not found — page structure may have changed");
+  return JSON.parse(m[1]);
+}
 ```
 
 ---
@@ -61,24 +54,24 @@ def parse_next_data(html):
 
 ### URL patterns
 
-```python
-# Keyword search
-"https://www.walmart.com/search?q=laptop"
+```ts
+// Keyword search
+"https://www.walmart.com/search?q=laptop";
 
-# Pagination — append &page=N
-"https://www.walmart.com/search?q=laptop&page=2"
+// Pagination — append &page=N
+"https://www.walmart.com/search?q=laptop&page=2";
 
-# Sort options (confirmed working)
-"https://www.walmart.com/search?q=laptop&sort=best_match"    # default
-"https://www.walmart.com/search?q=laptop&sort=best_seller"
-"https://www.walmart.com/search?q=laptop&sort=price_low"
-"https://www.walmart.com/search?q=laptop&sort=customer_rating"
+// Sort options (confirmed working)
+"https://www.walmart.com/search?q=laptop&sort=best_match";    // default
+"https://www.walmart.com/search?q=laptop&sort=best_seller";
+"https://www.walmart.com/search?q=laptop&sort=price_low";
+"https://www.walmart.com/search?q=laptop&sort=customer_rating";
 
-# Price filter
-"https://www.walmart.com/search?q=laptop&min_price=200&max_price=500"
+// Price filter
+"https://www.walmart.com/search?q=laptop&min_price=200&max_price=500";
 
-# Browse by category (department ID path)
-"https://www.walmart.com/browse/electronics/laptops/3944_1089430_3951"
+// Browse by category (department ID path)
+"https://www.walmart.com/browse/electronics/laptops/3944_1089430_3951";
 ```
 
 ### `__NEXT_DATA__` path to items
@@ -94,59 +87,60 @@ data
 
 ### Full extractor (field-tested)
 
-```python
-def extract_search_results(html):
-    """
-    Returns (items, total_count, max_page).
-    items is a list of dicts with confirmed fields.
-    """
-    data = parse_next_data(html)
-    sr = data["props"]["pageProps"]["initialData"]["searchResult"]
+```ts
+// Returns [items, total_count, max_page].
+// items is a list of objects with confirmed fields.
+function extract_search_results(html: string): [any[], number | null, number | null] {
+  const data = parse_next_data(html);
+  const sr = data.props.pageProps.initialData.searchResult;
 
-    items = []
-    for stack in sr.get("itemStacks", []):
-        for item in stack.get("items", []):
-            pi = item.get("priceInfo") or {}
-            img = item.get("imageInfo") or {}
-            rating = item.get("rating") or {}
-            avail = item.get("availabilityStatusV2") or {}
-            items.append({
-                "usItemId":        item.get("usItemId"),           # str, Walmart item ID
-                "name":            item.get("name"),               # str
-                "brand":           item.get("brand"),              # str or None
-                "price":           item.get("price"),              # int, current price in USD
-                "linePrice":       pi.get("linePrice"),            # str "$429.00"
-                "wasPrice":        pi.get("wasPrice") or None,     # str "$699.00" or None
-                "savings":         pi.get("savings") or None,      # str "SAVE $270.00" or None
-                "averageRating":   rating.get("averageRating"),    # float e.g. 4.3
-                "numberOfReviews": rating.get("numberOfReviews"),  # int
-                "availability":    avail.get("value"),             # "IN_STOCK" / "OUT_OF_STOCK"
-                "isSponsored":     bool(item.get("isSponsoredFlag")),
-                "url":             "https://www.walmart.com" + (item.get("canonicalUrl") or "").split("?")[0],
-                "thumbnailUrl":    img.get("thumbnailUrl"),
-            })
+  const items: any[] = [];
+  for (const stack of sr.itemStacks ?? []) {
+    for (const item of stack.items ?? []) {
+      const pi = item.priceInfo || {};
+      const img = item.imageInfo || {};
+      const rating = item.rating || {};
+      const avail = item.availabilityStatusV2 || {};
+      items.push({
+        usItemId:        item.usItemId ?? null,          // str, Walmart item ID
+        name:            item.name ?? null,              // str
+        brand:           item.brand ?? null,             // str or null
+        price:           item.price ?? null,             // int, current price in USD
+        linePrice:       pi.linePrice ?? null,           // str "$429.00"
+        wasPrice:        pi.wasPrice || null,            // str "$699.00" or null
+        savings:         pi.savings || null,             // str "SAVE $270.00" or null
+        averageRating:   rating.averageRating ?? null,   // float e.g. 4.3
+        numberOfReviews: rating.numberOfReviews ?? null, // int
+        availability:    avail.value ?? null,            // "IN_STOCK" / "OUT_OF_STOCK"
+        isSponsored:     Boolean(item.isSponsoredFlag),
+        url:             "https://www.walmart.com" + (item.canonicalUrl || "").split("?")[0],
+        thumbnailUrl:    img.thumbnailUrl ?? null,
+      });
+    }
+  }
 
-    total = sr.get("aggregatedCount")
-    max_page = (sr.get("paginationV2") or {}).get("maxPage")
-    return items, total, max_page
+  const total = sr.aggregatedCount ?? null;
+  const max_page = (sr.paginationV2 || {}).maxPage ?? null;
+  return [items, total, max_page];
+}
 
 
-# Usage
-html = fetch_walmart("https://www.walmart.com/search?q=laptop")
-items, total, max_page = extract_search_results(html)
-# items: 66 items on page 1, total=18818, max_page=11
+// Usage
+const html = await fetch_walmart("https://www.walmart.com/search?q=laptop");
+const [items, total, max_page] = extract_search_results(html);
+// items: 66 items on page 1, total=18818, max_page=11
 
-# Filter out sponsored
-organic = [i for i in items if not i["isSponsored"]]
+// Filter out sponsored
+const organic = items.filter((i) => !i.isSponsored);
 ```
 
 ### Field notes (confirmed)
 
 - **`usItemId`**: string, matches the numeric ID at the end of `/ip/.../ITEMID` URLs.
-  Some non-product rows (ad widgets) have `usItemId=None` — filter with `if item.get("usItemId")`.
+  Some non-product rows (ad widgets) have `usItemId` null — filter with `if (item.usItemId)`.
 - **`price`**: integer cents-less price (e.g. `429` for "$429.00"). Use `priceInfo.linePrice` for
   the formatted string including the dollar sign.
-- **`wasPrice` / `savings`**: only present when item is on sale. Always `None` for full-price items.
+- **`wasPrice` / `savings`**: only present when item is on sale. Always `null` for full-price items.
 - **`isSponsoredFlag`**: the first batch of results across both itemStacks are frequently sponsored.
   On a laptop search, ~56 of 66 SSR items carry `isSponsoredFlag: true`.
 - **`rating`**: present on ~91% of items (60/66 in test). `averageRating` is a float; `numberOfReviews` is int.
@@ -157,11 +151,12 @@ organic = [i for i in items if not i["isSponsored"]]
 
 ### Pagination
 
-```python
-for page in range(1, max_page + 1):
-    html = fetch_walmart(f"https://www.walmart.com/search?q=laptop&page={page}")
-    items, _, _ = extract_search_results(html)
-    # process items...
+```ts
+for (let page = 1; page <= max_page; page++) {
+  const html = await fetch_walmart(`https://www.walmart.com/search?q=laptop&page=${page}`);
+  const [items] = extract_search_results(html);
+  // process items...
+}
 ```
 
 Page responses average ~2.5 s each. No rate-limiting was observed across 3 sequential requests.
@@ -195,120 +190,113 @@ data.props.pageProps.initialData.data
 
 ### Full extractor (field-tested)
 
-```python
-def extract_product_detail(html):
-    """
-    Returns a dict with all confirmed product fields.
-    idml.specifications returns all spec rows as a flat dict.
-    reviews returns the SSR-rendered first 10 customer reviews.
-    """
-    data = parse_next_data(html)
-    d = data["props"]["pageProps"]["initialData"]["data"]
-    product = d["product"]
-    idml    = d.get("idml") or {}
-    reviews = d.get("reviews") or {}
+```ts
+// Returns an object with all confirmed product fields.
+// idml.specifications returns all spec rows as a flat object.
+// reviews returns the SSR-rendered first 10 customer reviews.
+function extract_product_detail(html: string): any {
+  const data = parse_next_data(html);
+  const d = data.props.pageProps.initialData.data;
+  const product = d.product;
+  const idml    = d.idml || {};
+  const reviews = d.reviews || {};
 
-    pi = product.get("priceInfo") or {}
-    cp = pi.get("currentPrice") or {}
-    img = product.get("imageInfo") or {}
-    avail = product.get("availabilityStatusV2") or {}
+  const pi = product.priceInfo || {};
+  const cp = pi.currentPrice || {};
+  const img = product.imageInfo || {};
+  const avail = product.availabilityStatusV2 || {};
 
-    specs = {
-        spec.get("name"): spec.get("value")
-        for spec in (idml.get("specifications") or [])
-    }
+  const specs = Object.fromEntries(
+    (idml.specifications || []).map((spec: any) => [spec.name, spec.value ?? null]),
+  );
 
-    all_images = [
-        img_item.get("url")
-        for img_item in (img.get("allImages") or [])
-        if img_item.get("url")
-    ]
+  const all_images = (img.allImages || [])
+    .map((img_item: any) => img_item.url)
+    .filter(Boolean);
 
-    customer_reviews = [
-        {
-            "title":    r.get("reviewTitle"),
-            "rating":   r.get("rating"),           # int 1-5 (field is "rating", NOT "overallRating")
-            "text":     r.get("reviewText"),
-            "author":   r.get("userNickname"),
-            "date":     r.get("reviewSubmissionTime"),
-        }
-        for r in (reviews.get("customerReviews") or [])
-    ]
+  const customer_reviews = (reviews.customerReviews || []).map((r: any) => ({
+    title:  r.reviewTitle ?? null,
+    rating: r.rating ?? null,           // int 1-5 (field is "rating", NOT "overallRating")
+    text:   r.reviewText ?? null,
+    author: r.userNickname ?? null,
+    date:   r.reviewSubmissionTime ?? null,
+  }));
 
-    return {
-        # identity
-        "usItemId":            product.get("usItemId"),
-        "name":                product.get("name"),
-        "brand":               product.get("brand"),
-        "model":               product.get("model"),
-        "upc":                 product.get("upc"),
-        # price
-        "price":               cp.get("price"),            # float, e.g. 599
-        "priceString":         cp.get("priceString"),      # "$599.00"
-        "wasPrice":            (pi.get("wasPrice") or {}).get("priceString"),
-        "savings":             (pi.get("savings") or {}).get("savingsString"),
-        # availability
-        "availability":        avail.get("value"),         # "IN_STOCK" / "OUT_OF_STOCK"
-        "availabilityDisplay": avail.get("display"),       # "In stock"
-        # ratings
-        "averageRating":       product.get("averageRating"),
-        "numberOfReviews":     product.get("numberOfReviews"),
-        # text
-        "shortDescription":    product.get("shortDescription"),
-        "longDescription":     idml.get("longDescription"),  # HTML string
-        # media
-        "thumbnailUrl":        img.get("thumbnailUrl"),
-        "allImages":           all_images,          # up to 10 image URLs
-        # specs
-        "specifications":      specs,               # {"Brand": "Apple", "Processor": "A18 Pro", ...}
-        "highlights":          [                    # top highlighted specs with icons
-            {"name": h.get("name"), "value": h.get("value")}
-            for h in (idml.get("productHighlights") or [])
-        ],
-        # URL
-        "canonicalUrl":        "https://www.walmart.com" + (product.get("canonicalUrl") or ""),
-        # fulfillment
-        "fulfillmentOptions":  product.get("fulfillmentOptions") or [],
-        # reviews (SSR-rendered, first 10)
-        "reviewSummary": {
-            "averageOverallRating":    reviews.get("averageOverallRating"),
-            "totalReviewCount":        reviews.get("totalReviewCount"),
-            "reviewsWithTextCount":    reviews.get("reviewsWithTextCount"),
-            "recommendedPercentage":   reviews.get("recommendedPercentage"),
-        },
-        "customerReviews":     customer_reviews,
-    }
+  return {
+    // identity
+    usItemId:            product.usItemId ?? null,
+    name:                product.name ?? null,
+    brand:               product.brand ?? null,
+    model:               product.model ?? null,
+    upc:                 product.upc ?? null,
+    // price
+    price:               cp.price ?? null,            // float, e.g. 599
+    priceString:         cp.priceString ?? null,      // "$599.00"
+    wasPrice:            (pi.wasPrice || {}).priceString ?? null,
+    savings:             (pi.savings || {}).savingsString ?? null,
+    // availability
+    availability:        avail.value ?? null,         // "IN_STOCK" / "OUT_OF_STOCK"
+    availabilityDisplay: avail.display ?? null,       // "In stock"
+    // ratings
+    averageRating:       product.averageRating ?? null,
+    numberOfReviews:     product.numberOfReviews ?? null,
+    // text
+    shortDescription:    product.shortDescription ?? null,
+    longDescription:     idml.longDescription ?? null, // HTML string
+    // media
+    thumbnailUrl:        img.thumbnailUrl ?? null,
+    allImages:           all_images,          // up to 10 image URLs
+    // specs
+    specifications:      specs,               // {"Brand": "Apple", "Processor": "A18 Pro", ...}
+    highlights: (idml.productHighlights || []).map((h: any) => ({ // top highlighted specs with icons
+      name: h.name ?? null,
+      value: h.value ?? null,
+    })),
+    // URL
+    canonicalUrl:        "https://www.walmart.com" + (product.canonicalUrl || ""),
+    // fulfillment
+    fulfillmentOptions:  product.fulfillmentOptions || [],
+    // reviews (SSR-rendered, first 10)
+    reviewSummary: {
+      averageOverallRating:  reviews.averageOverallRating ?? null,
+      totalReviewCount:      reviews.totalReviewCount ?? null,
+      reviewsWithTextCount:  reviews.reviewsWithTextCount ?? null,
+      recommendedPercentage: reviews.recommendedPercentage ?? null,
+    },
+    customerReviews:     customer_reviews,
+  };
+}
 
 
-# Usage
-url = "https://www.walmart.com/ip/Apple-MacBook-Neo/19717318352"
-html = fetch_walmart(url)
-product = extract_product_detail(html)
+// Usage
+const url = "https://www.walmart.com/ip/Apple-MacBook-Neo/19717318352";
+const html = await fetch_walmart(url);
+const product = extract_product_detail(html);
 
-# Example output (confirmed live):
-# product["name"]         → "Apple MacBook Neo 13-inch Apple A18 Pro chip..."
-# product["price"]        → 599
-# product["priceString"]  → "$599.00"
-# product["availability"] → "IN_STOCK"
-# product["model"]        → "MHFD4LL/A"
-# product["upc"]          → "195950852745"
-# len(product["specifications"])  → 29 spec rows
-# len(product["allImages"])       → 10
-# product["specifications"]["Processor"] → "A18 Pro"
+// Example output (confirmed live):
+// product.name         → "Apple MacBook Neo 13-inch Apple A18 Pro chip..."
+// product.price        → 599
+// product.priceString  → "$599.00"
+// product.availability → "IN_STOCK"
+// product.model        → "MHFD4LL/A"
+// product.upc          → "195950852745"
+// Object.keys(product.specifications).length → 29 spec rows
+// product.allImages.length                   → 10
+// product.specifications["Processor"]        → "A18 Pro"
 ```
 
 ### Field notes (confirmed)
 
 - **`averageRating` / `numberOfReviews`** on the product node: present for items with reviews.
-  New/few-review items may return `None` for both.
+  New/few-review items may return `null` for both.
 - **`reviewSummary.averageOverallRating`** in the reviews node often differs slightly from
   `product.averageRating` — the reviews node is more precise (e.g. `4.75` vs `4.8`).
 - **`customerReviews`** (SSR): always the first 10 reviews. The per-review rating field is `"rating"`
-  (int 1–5), **not** `"overallRating"` (which is always `None`).
+  (int 1–5), **not** `"overallRating"` (which is always `null`).
 - **`longDescription`**: raw HTML string including `<ul>/<li>` tags. Strip tags before display.
 - **`specifications`**: flat dict — confirmed 29–31 rows for electronics. Key names use display labels
   (e.g. `"RAM memory"`, `"Screen size"`, `"HD capacity"`).
-- **`wasPrice` / `savings`** on detail page: same as search — `None` when item is not discounted.
+- **`wasPrice` / `savings`** on detail page: same as search — `null` when item is not discounted.
 - **No JSON-LD**: Walmart product pages do **not** include `<script type="application/ld+json">`.
   All structured data lives in `__NEXT_DATA__`.
 
@@ -327,9 +315,10 @@ Walmart uses **PerimeterX** (app ID `PXu6b0qd2S`, confirmed in `runtimeConfig.pe
 | No JS execution | SSR response is complete — no JS challenge to solve |
 
 Detection in code:
-```python
-if "Robot or human" in html:
-    raise RuntimeError("PerimeterX challenge — switch to browser harness")
+```ts
+if (html.includes("Robot or human")) {
+  throw new Error("PerimeterX challenge — switch to browser harness");
+}
 ```
 
 If `http_get` starts returning the challenge after a run of successful fetches, switch to the
@@ -344,40 +333,40 @@ Use the browser harness when:
 - You need to interact with the page (add to cart, filter UI, infinite scroll)
 - You need variant switching (color/size selectors)
 
-```python
-# Browser-based search extraction
-new_tab("https://www.walmart.com/search?q=laptop")
-wait_for_load()
-wait(2)  # JS renders product cards after readyState=complete
+```ts
+// Browser-based search extraction
+await new_tab("https://www.walmart.com/search?q=laptop");
+await wait_for_load();
+await wait(2); // JS renders product cards after readyState=complete
 
-# Extract via __NEXT_DATA__ in-browser (identical structure to http_get)
-import json
-nd = js("document.getElementById('__NEXT_DATA__')?.textContent")
-data = json.loads(nd)
-sr = data["props"]["pageProps"]["initialData"]["searchResult"]
-items = []
-for stack in sr.get("itemStacks", []):
-    items.extend(stack.get("items", []))
+// Extract via __NEXT_DATA__ in-browser (identical structure to http_get)
+const nd = await js("document.getElementById('__NEXT_DATA__')?.textContent");
+const data = JSON.parse(nd);
+const sr = data.props.pageProps.initialData.searchResult;
+const items: any[] = [];
+for (const stack of sr.itemStacks ?? []) {
+  items.push(...(stack.items ?? []));
+}
 ```
 
 ### Browser selectors (confirmed working for DOM-based extraction)
 
-```python
-# Product cards on search results page
-results = js("""
+```ts
+// Product cards on search results page
+const results = await js(`
   Array.from(document.querySelectorAll('[data-item-id]')).map(el => ({
     itemId:    el.getAttribute('data-item-id'),
     name:      el.querySelector('[itemprop="name"]')?.innerText?.trim(),
     price:     el.querySelector('[itemprop="price"]')?.getAttribute('content'),
     url:       el.querySelector('a[link-identifier]')?.href,
   })).filter(r => r.itemId)
-""")
+`);
 
-# If [data-item-id] misses items, use the Next.js data attribute alternative:
-results_alt = js("""
+// If [data-item-id] misses items, use the Next.js data attribute alternative:
+const results_alt = await js(`
   Array.from(document.querySelectorAll('[data-testid="list-view"]'))
     .map(el => el.innerText.trim())
-""")
+`);
 ```
 
 > **Prefer `__NEXT_DATA__` over DOM selectors** even in-browser — the JSON is complete and
@@ -386,10 +375,10 @@ results_alt = js("""
 ### Session gotcha
 
 Always open Walmart with `new_tab()` on first visit:
-```python
-new_tab("https://www.walmart.com/search?q=laptop")
-wait_for_load()
-wait(2)
+```ts
+await new_tab("https://www.walmart.com/search?q=laptop");
+await wait_for_load();
+await wait(2);
 ```
 After that, `goto()` works normally within the same session.
 
@@ -409,14 +398,14 @@ The `__NEXT_DATA__` SSR approach replaces any need for the official API for read
   PerimeterX. This is counterintuitive — the *shorter*, less realistic UA is the one that works.
 
 - **Regex must use `id=` attribute match**: The regex
-  `r'<script id="__NEXT_DATA__" type="application/json">...'` fails because the actual tag is
+  `/<script id="__NEXT_DATA__" type="application\/json">.../` fails because the actual tag is
   `<script id="__NEXT_DATA__">` without `type`. Use:
-  ```python
-  re.search(r'id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
+  ```ts
+  html.match(/id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)
   ```
 
-- **`usItemId` can be `None`**: ~5/66 items on a page are non-product ad widgets with no `usItemId`.
-  Always filter: `[i for i in items if i.get("usItemId")]`.
+- **`usItemId` can be `null`**: ~5/66 items on a page are non-product ad widgets with no `usItemId`.
+  Always filter: `items.filter((i) => i.usItemId)`.
 
 - **Two `itemStacks`**: Walmart returns two stacks. Iterate over all stacks or you'll miss
   ~10 items from the second stack.
@@ -424,7 +413,7 @@ The `__NEXT_DATA__` SSR approach replaces any need for the official API for read
 - **`canonicalUrl` includes tracking params**: Always strip with `.split("?")[0]`.
 
 - **Review field is `"rating"` not `"overallRating"`**: Each `customerReviews` entry has a `"rating"`
-  int field (1–5). The `"overallRating"` field is always `None`. Don't confuse with
+  int field (1–5). The `"overallRating"` field is always `null`. Don't confuse with
   `product.averageRating` (the aggregate float).
 
 - **No JSON-LD on product pages**: Zero `<script type="application/ld+json">` tags were found.
@@ -436,9 +425,9 @@ The `__NEXT_DATA__` SSR approach replaces any need for the official API for read
 - **Page sizes vary**: Page 1 returned 66 items across 2 stacks; page 2 returned 55.
   Do not assume a fixed items-per-page count.
 
-- **`http_get` default already sends `Mozilla/5.0`**: `helpers.http_get()` uses
+- **`http_get` default already sends `Mozilla/5.0`**: `http_get()` uses
   `"User-Agent": "Mozilla/5.0"` by default — no override needed when calling it directly.
-  Only pass a custom `headers=` if you need to change something else.
+  Only pass a custom `headers` argument if you need to change something else.
 
 - **`developer.api.walmart.com`** returns HTTP 403 without an API key. Not usable for
   unauthenticated scraping.

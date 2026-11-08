@@ -23,45 +23,44 @@ All results validated against live site on 2026-04-18.
 
 Construct the iframe URL directly — no need to fetch the main page first.
 
-```python
-import json, re
-from helpers import http_get
+```ts
+/**
+ * Returns daily OHLCV records for any US stock.
+ *
+ * ticker:     uppercase ticker symbol, e.g. 'AAPL', 'MSFT', 'TSLA', 'NVDA'
+ * years_back: number of years of history (1=~250 records, 15=~3772 records).
+ *             Omit (null) to get ALL available history (AAPL goes back to 1980).
+ */
+async function get_stock_ohlcv(ticker: string, years_back: number | null = null): Promise<any[]> {
+  let url = `https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/stock_price_history.php?t=${ticker}`;
+  if (years_back) url += `&yb=${years_back}`;
 
-def get_stock_ohlcv(ticker: str, years_back: int = None) -> list[dict]:
-    """
-    Returns daily OHLCV records for any US stock.
+  const html = await http_get(url);
+  const m = html.match(/var\s+dataDaily\s*=\s*\[/);
+  if (!m) throw new Error(`No dataDaily found for ticker ${JSON.stringify(ticker)}`);
 
-    ticker:     uppercase ticker symbol, e.g. 'AAPL', 'MSFT', 'TSLA', 'NVDA'
-    years_back: number of years of history (1=~250 records, 15=~3772 records).
-                Omit (None) to get ALL available history (AAPL goes back to 1980).
-    """
-    url = f"https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/stock_price_history.php?t={ticker}"
-    if years_back:
-        url += f"&yb={years_back}"
+  const si = html.indexOf("[", m.index);
+  let bc = 0, ei = -1;
+  for (let j = si; j < html.length; j++) {
+    const ch = html[j];
+    if (ch === "[") bc += 1;
+    else if (ch === "]") {
+      bc -= 1;
+      if (bc === 0) { ei = j; break; }
+    }
+  }
+  return JSON.parse(html.slice(si, ei + 1));
+}
 
-    html = http_get(url)
-    m = re.search(r'var\s+dataDaily\s*=\s*\[', html)
-    if not m:
-        raise ValueError(f"No dataDaily found for ticker {ticker!r}")
+// Usage
+const records = await get_stock_ohlcv("AAPL", 15);
+// [{d: '2011-04-18', o: '9.771', h: '9.9547', l: '9.593', c: '9.9433', v: '18.275'}, ...]
 
-    si = html.index('[', m.start())
-    bc = 0
-    for j, ch in enumerate(html[si:], si):
-        if ch == '[':   bc += 1
-        elif ch == ']':
-            bc -= 1
-            if bc == 0: ei = j; break
-    return json.loads(html[si:ei+1])
+const latest = records.at(-1);
+// {d: '2026-04-17', o: '266.96', h: '272.3', l: '266.72', c: '270.23',
+//  v: '55.211', ma50: '260.554', ma200: '251.828'}
 
-# Usage
-records = get_stock_ohlcv('AAPL', years_back=15)
-# [{'d': '2011-04-18', 'o': '9.771', 'h': '9.9547', 'l': '9.593', 'c': '9.9433', 'v': '18.275'}, ...]
-
-latest = records[-1]
-# {'d': '2026-04-17', 'o': '266.96', 'h': '272.3', 'l': '266.72', 'c': '270.23',
-#  'v': '55.211', 'ma50': '260.554', 'ma200': '251.828'}
-
-print(f"{latest['d']}: close=${latest['c']} vol={latest['v']}M shares")
+console.log(`${latest.d}: close=$${latest.c} vol=${latest.v}M shares`);
 ```
 
 ### dataDaily field reference
@@ -77,16 +76,16 @@ print(f"{latest['d']}: close=${latest['c']} vol={latest['v']}M shares")
 | `ma50` | 50-day moving average | str/float (appears on recent records only) |
 | `ma200` | 200-day moving average | str/float (appears on recent records only) |
 
-**Note:** All price values are strings — cast with `float()`. Volume is millions: `55.211` = 55.2M shares traded.
+**Note:** All price values are strings — cast with `parseFloat()`. Volume is millions: `55.211` = 55.2M shares traded.
 
 ### Confirmed tickers (2026-04-18)
 
 All tested with direct iframe URL, no page fetch needed:
 
-```python
-# All work: AAPL, MSFT, TSLA, NVDA, GOOGL, AMZN, META, NFLX, etc.
-# 3772 records for yb=15 (goes back to 2011-04-18)
-# AAPL full history: 11428 records back to 1980-12-12
+```ts
+// All work: AAPL, MSFT, TSLA, NVDA, GOOGL, AMZN, META, NFLX, etc.
+// 3772 records for yb=15 (goes back to 2011-04-18)
+// AAPL full history: 11428 records back to 1980-12-12
 ```
 
 ---
@@ -97,115 +96,121 @@ Different PHP files depending on metric. Construct directly.
 
 ### Market cap (daily, in billions USD)
 
-```python
-import json, re
-from helpers import http_get
+```ts
+async function get_market_cap(ticker: string, years_back = 15): Promise<any[]> {
+  const url = `https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/market_cap.php?t=${ticker}&yb=${years_back}`;
+  const html = await http_get(url);
+  const m = html.match(/var\s+chartData\s*=\s*\[/);
+  const si = html.indexOf("[", m!.index);
+  let bc = 0, ei = -1;
+  for (let j = si; j < html.length; j++) {
+    const ch = html[j];
+    if (ch === "[") bc += 1;
+    else if (ch === "]") {
+      bc -= 1;
+      if (bc === 0) { ei = j; break; }
+    }
+  }
+  return JSON.parse(html.slice(si, ei + 1));
+}
 
-def get_market_cap(ticker: str, years_back: int = 15) -> list[dict]:
-    url = f"https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/market_cap.php?t={ticker}&yb={years_back}"
-    html = http_get(url)
-    m = re.search(r'var\s+chartData\s*=\s*\[', html)
-    si = html.index('[', m.start())
-    bc = 0
-    for j, ch in enumerate(html[si:], si):
-        if ch == '[':   bc += 1
-        elif ch == ']':
-            bc -= 1
-            if bc == 0: ei = j; break
-    return json.loads(html[si:ei+1])
-
-data = get_market_cap('AAPL')
-# [{'date': '2026-04-15', 'v1': 3929.35}, {'date': '2026-04-16', 'v1': 3884.67}, ...]
-# v1 = market cap in billions USD
+const data = await get_market_cap("AAPL");
+// [{date: '2026-04-15', v1: 3929.35}, {date: '2026-04-16', v1: 3884.67}, ...]
+// v1 = market cap in billions USD
 ```
 
 ### PE ratio, revenue, current ratio (quarterly/annual fundamentals)
 
-```python
-import json, re
-from helpers import http_get
+```ts
+/** freq: 'Q' = quarterly, 'A' = annual */
+async function get_fundamental(ticker: string, metric_type: string, statement: string,
+                               freq = "Q", years_back = 15): Promise<any[]> {
+  const url =
+    `https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/` +
+    `fundamental_iframe.php?t=${ticker}&type=${metric_type}&statement=${statement}` +
+    `&freq=${freq}&sub=&yb=${years_back}`;
+  const html = await http_get(url);
+  const m = html.match(/var\s+chartData\s*=\s*\[/);
+  const si = html.indexOf("[", m!.index);
+  let bc = 0, ei = -1;
+  for (let j = si; j < html.length; j++) {
+    const ch = html[j];
+    if (ch === "[") bc += 1;
+    else if (ch === "]") {
+      bc -= 1;
+      if (bc === 0) { ei = j; break; }
+    }
+  }
+  return JSON.parse(html.slice(si, ei + 1));
+}
 
-def get_fundamental(ticker: str, metric_type: str, statement: str,
-                    freq: str = 'Q', years_back: int = 15) -> list[dict]:
-    """
-    freq: 'Q' = quarterly, 'A' = annual
-    """
-    url = (
-        f"https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/"
-        f"fundamental_iframe.php?t={ticker}&type={metric_type}&statement={statement}"
-        f"&freq={freq}&sub=&yb={years_back}"
-    )
-    html = http_get(url)
-    m = re.search(r'var\s+chartData\s*=\s*\[', html)
-    si = html.index('[', m.start())
-    bc = 0
-    for j, ch in enumerate(html[si:], si):
-        if ch == '[':   bc += 1
-        elif ch == ']':
-            bc -= 1
-            if bc == 0: ei = j; break
-    return json.loads(html[si:ei+1])
+// PE ratio
+const pe = await get_fundamental("AAPL", "pe-ratio", "price-ratios");
+// [{date: '2025-09-30', v1: 254.146, v2: 7.46, v3: 34.07}, ...]
+// v1 = stock price, v2 = quarterly EPS, v3 = PE ratio
 
-# PE ratio
-pe = get_fundamental('AAPL', 'pe-ratio', 'price-ratios')
-# [{'date': '2025-09-30', 'v1': 254.146, 'v2': 7.46, 'v3': 34.07}, ...]
-# v1 = stock price, v2 = quarterly EPS, v3 = PE ratio
+// Revenue
+const rev = await get_fundamental("AAPL", "revenue", "income-statement");
+// [{date: '2025-12-31', v1: 435.617, v2: 143.756, v3: 15.65}, ...]
+// v1 = TTM revenue ($B), v2 = quarterly revenue ($B), v3 = YoY growth %
 
-# Revenue
-rev = get_fundamental('AAPL', 'revenue', 'income-statement')
-# [{'date': '2025-12-31', 'v1': 435.617, 'v2': 143.756, 'v3': 15.65}, ...]
-# v1 = TTM revenue ($B), v2 = quarterly revenue ($B), v3 = YoY growth %
+// Total assets
+const assets = await get_fundamental("AAPL", "total-assets", "balance-sheet");
 
-# Total assets
-assets = get_fundamental('AAPL', 'total-assets', 'balance-sheet')
-
-# Current ratio
-ratio = get_fundamental('AAPL', 'current-ratio', 'ratios')
+// Current ratio
+const ratio = await get_fundamental("AAPL", "current-ratio", "ratios");
 ```
 
 ### Profit margins
 
-```python
-def get_profit_margins(ticker: str, years_back: int = 15) -> list[dict]:
-    url = (
-        f"https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/"
-        f"fundamental_metric.php?t={ticker}&chart=profit-margin&sub=&yb={years_back}"
-    )
-    html = http_get(url)
-    m = re.search(r'var\s+chartData\s*=\s*\[', html)
-    si = html.index('[', m.start())
-    bc = 0
-    for j, ch in enumerate(html[si:], si):
-        if ch == '[':   bc += 1
-        elif ch == ']':
-            bc -= 1
-            if bc == 0: ei = j; break
-    return json.loads(html[si:ei+1])
+```ts
+async function get_profit_margins(ticker: string, years_back = 15): Promise<any[]> {
+  const url =
+    `https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/` +
+    `fundamental_metric.php?t=${ticker}&chart=profit-margin&sub=&yb=${years_back}`;
+  const html = await http_get(url);
+  const m = html.match(/var\s+chartData\s*=\s*\[/);
+  const si = html.indexOf("[", m!.index);
+  let bc = 0, ei = -1;
+  for (let j = si; j < html.length; j++) {
+    const ch = html[j];
+    if (ch === "[") bc += 1;
+    else if (ch === "]") {
+      bc -= 1;
+      if (bc === 0) { ei = j; break; }
+    }
+  }
+  return JSON.parse(html.slice(si, ei + 1));
+}
 
-margins = get_profit_margins('AAPL')
-# [{'date': '2025-12-31', 'v1': 47.33, 'v2': 32.38, 'v3': 27.04}, ...]
-# v1 = gross margin %, v2 = operating margin %, v3 = net margin %
+const margins = await get_profit_margins("AAPL");
+// [{date: '2025-12-31', v1: 47.33, v2: 32.38, v3: 27.04}, ...]
+// v1 = gross margin %, v2 = operating margin %, v3 = net margin %
 ```
 
 ### Dividend yield
 
-```python
-def get_dividend_yield(ticker: str, years_back: int = 15) -> list[dict]:
-    url = f"https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/dividend_yield.php?t={ticker}&yb={years_back}"
-    html = http_get(url)
-    m = re.search(r'var\s+chartData\s*=\s*\[', html)
-    si = html.index('[', m.start())
-    bc = 0
-    for j, ch in enumerate(html[si:], si):
-        if ch == '[':   bc += 1
-        elif ch == ']':
-            bc -= 1
-            if bc == 0: ei = j; break
-    return json.loads(html[si:ei+1])
+```ts
+async function get_dividend_yield(ticker: string, years_back = 15): Promise<any[]> {
+  const url = `https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/dividend_yield.php?t=${ticker}&yb=${years_back}`;
+  const html = await http_get(url);
+  const m = html.match(/var\s+chartData\s*=\s*\[/);
+  const si = html.indexOf("[", m!.index);
+  let bc = 0, ei = -1;
+  for (let j = si; j < html.length; j++) {
+    const ch = html[j];
+    if (ch === "[") bc += 1;
+    else if (ch === "]") {
+      bc -= 1;
+      if (bc === 0) { ei = j; break; }
+    }
+  }
+  return JSON.parse(html.slice(si, ei + 1));
+}
 
-dy = get_dividend_yield('AAPL')
-# [{'date': '2026-04-17', 'c': 270.23, 'ttm_d': 1.03848, 'ttm_dy': 0.3843}, ...]
-# c = stock price, ttm_d = TTM dividend ($), ttm_dy = TTM yield (%)
+const dy = await get_dividend_yield("AAPL");
+// [{date: '2026-04-17', c: 270.23, ttm_d: 1.03848, ttm_dy: 0.3843}, ...]
+// c = stock price, ttm_d = TTM dividend ($), ttm_dy = TTM yield (%)
 ```
 
 ### Stock metric URL reference
@@ -232,76 +237,77 @@ All take `?t={TICKER}&yb={N}` (or `&sub=&yb={N}` for the fundamental ones).
 
 These pages embed chart data via `chart_iframe_comp.php`. The variable is `originalData`.
 
-```python
-import json, re
-from helpers import http_get
+```ts
+/**
+ * page_id:  the numeric ID from the page URL, e.g. 2577
+ * url_slug: last segment of the page URL, e.g. 'sp500-pe-ratio-price-to-earnings-chart'
+ */
+async function extract_index_chart(page_id: number, url_slug: string): Promise<any[]> {
+  const url = `https://www.macrotrends.net/assets/php/chart_iframe_comp.php?id=${page_id}&url=${url_slug}`;
+  const html = await http_get(url);
+  const m = html.match(/var\s+originalData\s*=\s*\[/);
+  if (!m) throw new Error("originalData not found — this page may use a different pattern");
+  const si = html.indexOf("[", m.index);
+  let bc = 0, ei = -1;
+  for (let j = si; j < html.length; j++) {
+    const ch = html[j];
+    if (ch === "[") bc += 1;
+    else if (ch === "]") {
+      bc -= 1;
+      if (bc === 0) { ei = j; break; }
+    }
+  }
+  return JSON.parse(html.slice(si, ei + 1));
+}
 
-def extract_index_chart(page_id: int, url_slug: str) -> list[dict]:
-    """
-    page_id:  the numeric ID from the page URL, e.g. 2577
-    url_slug: last segment of the page URL, e.g. 'sp500-pe-ratio-price-to-earnings-chart'
-    """
-    url = f"https://www.macrotrends.net/assets/php/chart_iframe_comp.php?id={page_id}&url={url_slug}"
-    html = http_get(url)
-    m = re.search(r'var\s+originalData\s*=\s*\[', html)
-    if not m:
-        raise ValueError("originalData not found — this page may use a different pattern")
-    si = html.index('[', m.start())
-    bc = 0
-    for j, ch in enumerate(html[si:], si):
-        if ch == '[':   bc += 1
-        elif ch == ']':
-            bc -= 1
-            if bc == 0: ei = j; break
-    return json.loads(html[si:ei+1])
+// S&P 500 PE ratio (1180 monthly records, 1927-2026)
+const pe_data = await extract_index_chart(2577, "sp500-pe-ratio-price-to-earnings-chart");
+// [{date: '1927-12-01', close: '15.9099'}, ..., {date: '2026-03-01', close: '27.8925'}]
+// 'close' is the PE ratio value
 
-# S&P 500 PE ratio (1180 monthly records, 1927-2026)
-pe_data = extract_index_chart(2577, 'sp500-pe-ratio-price-to-earnings-chart')
-# [{'date': '1927-12-01', 'close': '15.9099'}, ..., {'date': '2026-03-01', 'close': '27.8925'}]
-# 'close' is the PE ratio value
+// Gold prices (1336 monthly records, 1915-2026)
+const gold_data = await extract_index_chart(1333, "historical-gold-prices-100-year-chart");
+// [{id: 'GOLDAMGBD228NLBM', date: '1915-01-01', close: '629.36', close1: '19.250'}, ...]
+// 'close' = inflation-adjusted price, 'close1' = nominal USD price
 
-# Gold prices (1336 monthly records, 1915-2026)
-gold_data = extract_index_chart(1333, 'historical-gold-prices-100-year-chart')
-# [{'id': 'GOLDAMGBD228NLBM', 'date': '1915-01-01', 'close': '629.36', 'close1': '19.250'}, ...]
-# 'close' = inflation-adjusted price, 'close1' = nominal USD price
-
-print(f"Latest S&P PE: {pe_data[-1]}")   # {'date': '2026-03-01', 'close': '27.8925'}
-print(f"Latest gold:   {gold_data[-1]}") # {'id': ..., 'date': '2026-04-01', 'close': '5177.19', 'close1': '5177.190'}
+console.log(`Latest S&P PE: ${JSON.stringify(pe_data.at(-1))}`);   // {"date":"2026-03-01","close":"27.8925"}
+console.log(`Latest gold:   ${JSON.stringify(gold_data.at(-1))}`); // {"id":...,"date":"2026-04-01","close":"5177.19","close1":"5177.190"}
 ```
 
 ### Detecting which pattern a page uses
 
-```python
-def get_page_pattern(page_url: str) -> str:
-    html = http_get(page_url)
-    if 'chart_iframe_comp.php' in html:
-        return 'index_chart'           # use extract_index_chart()
-    elif 'generateChart' in html and 'highchartsURL' in html:
-        return 'economic_api'          # use get_economic_data()
-    elif '/production/stocks/desktop/PRODUCTION/' in html:
-        return 'stock_iframe'          # use get_stock_ohlcv() etc.
-    return 'unknown'
+```ts
+async function get_page_pattern(page_url: string): Promise<string> {
+  const html = await http_get(page_url);
+  if (html.includes("chart_iframe_comp.php")) {
+    return "index_chart";           // use extract_index_chart()
+  } else if (html.includes("generateChart") && html.includes("highchartsURL")) {
+    return "economic_api";          // use get_economic_data()
+  } else if (html.includes("/production/stocks/desktop/PRODUCTION/")) {
+    return "stock_iframe";          // use get_stock_ohlcv() etc.
+  }
+  return "unknown";
+}
 ```
 
 ### To get the ID and slug from a page
 
-```python
-import re
-from helpers import http_get
+```ts
+const page_url = "https://www.macrotrends.net/2577/sp500-pe-ratio-price-to-earnings-chart";
+const html = await http_get(page_url);
 
-page_url = "https://www.macrotrends.net/2577/sp500-pe-ratio-price-to-earnings-chart"
-html = http_get(page_url)
+let page_id: number, url_slug: string;
 
-# Option A: parse from the iframe src in the HTML
-m = re.search(r'chart_iframe_comp\.php\?id=(\d+)&url=([^"&]+)', html)
-if m:
-    page_id, url_slug = int(m.group(1)), m.group(2)
+// Option A: parse from the iframe src in the HTML
+const m = html.match(/chart_iframe_comp\.php\?id=(\d+)&url=([^"&]+)/);
+if (m) {
+  [page_id, url_slug] = [parseInt(m[1]), m[2]];
+}
 
-# Option B: derive from the page URL (works when slug matches)
-import urllib.parse
-parts = page_url.rstrip('/').split('/')
-page_id  = int(parts[-2])   # 2577
-url_slug = parts[-1]         # 'sp500-pe-ratio-price-to-earnings-chart'
+// Option B: derive from the page URL (works when slug matches)
+const parts = page_url.replace(/\/+$/, "").split("/");
+page_id  = parseInt(parts.at(-2)!);   // 2577
+url_slug = parts.at(-1)!;             // 'sp500-pe-ratio-price-to-earnings-chart'
 ```
 
 ---
@@ -311,80 +317,74 @@ url_slug = parts[-1]         # 'sp500-pe-ratio-price-to-earnings-chart'
 Pages that use `generateChart()` in their JS load data from `/economic-data/{pageID}/{freq}`.
 This endpoint requires a `Referer` header matching the page URL.
 
-```python
-import json, datetime, gzip, urllib.request
-from helpers import http_get
+```ts
+/**
+ * page_id:     numeric ID from the page URL (e.g. 2015 for Fed Funds Rate)
+ * referer_url: the full page URL — required as Referer header
+ * freq:        'D' = daily, 'M' = monthly (not all support both)
+ *
+ * Returns {data: [[ts_ms, value], ...], metadata: {...}}
+ */
+async function get_economic_data(page_id: number, referer_url: string, freq = "D"): Promise<any> {
+  const url = `https://www.macrotrends.net/economic-data/${page_id}/${freq}`;
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, */*",
+    "Referer": referer_url,
+  };
+  // http_get adds Accept-Encoding: gzip and decompresses
+  const result = JSON.parse(await http_get(url, headers));
+  if (result === null) throw new Error(`pageID=${page_id} does not support freq=${JSON.stringify(freq)}`);
+  return result;
+}
 
-def get_economic_data(page_id: int, referer_url: str, freq: str = 'D') -> dict:
-    """
-    page_id:     numeric ID from the page URL (e.g. 2015 for Fed Funds Rate)
-    referer_url: the full page URL — required as Referer header
-    freq:        'D' = daily, 'M' = monthly (not all support both)
-    
-    Returns {'data': [[ts_ms, value], ...], 'metadata': {...}}
-    """
-    url = f"https://www.macrotrends.net/economic-data/{page_id}/{freq}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, */*",
-        "Accept-Encoding": "gzip",
-        "Referer": referer_url,
-    }
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as r:
-        raw = r.read()
-        if r.headers.get("Content-Encoding") == "gzip":
-            raw = gzip.decompress(raw)
-        result = json.loads(raw)
-    if result is None:
-        raise ValueError(f"pageID={page_id} does not support freq={freq!r}")
-    return result
+// Fed Funds Rate (daily, 25319 records)
+const ffr = await get_economic_data(2015, "https://www.macrotrends.net/2015/fed-funds-rate-historical-chart", "D");
+console.log(ffr.metadata.name);  // 'Fed Funds Interest Rate'
+console.log(ffr.metadata.label); // '%'
 
-# Fed Funds Rate (daily, 25319 records)
-ffr = get_economic_data(2015, "https://www.macrotrends.net/2015/fed-funds-rate-historical-chart", freq='D')
-print(ffr['metadata']['name'])  # 'Fed Funds Interest Rate'
-print(ffr['metadata']['label']) # '%'
+// Convert timestamps to dates
+for (const [ts_ms, value] of ffr.data.slice(-3)) {
+  const dt = new Date(ts_ms);   // UTC
+  console.log(`${dt.toISOString().slice(0, 10)}: ${value}%`);
+}
+// 2026-04-13: 3.64%
+// 2026-04-14: 3.64%
+// 2026-04-15: 3.64%
 
-# Convert timestamps to dates
-for ts_ms, value in ffr['data'][-3:]:
-    dt = datetime.datetime.fromtimestamp(ts_ms / 1000, datetime.UTC)
-    print(f"{dt.strftime('%Y-%m-%d')}: {value}%")
-# 2026-04-13: 3.64%
-# 2026-04-14: 3.64%
-# 2026-04-15: 3.64%
+// 10-Year Treasury yield (daily, 16074 records)
+const t10 = await get_economic_data(2016, "https://www.macrotrends.net/2016/10-year-treasury-bond-rate-yield-chart", "D");
+// Last: 2026-04-15: 4.29%
 
-# 10-Year Treasury yield (daily, 16074 records)
-t10 = get_economic_data(2016, "https://www.macrotrends.net/2016/10-year-treasury-bond-rate-yield-chart", freq='D')
-# Last: 2026-04-15: 4.29%
+// Gold prices (monthly, 1336 records, 1915-present) — template=5
+const gold = await get_economic_data(1333, "https://www.macrotrends.net/1333/historical-gold-prices-100-year-chart", "M");
+// metadata: {name: 'Gold Prices', currency: '$', label: ''}
 
-# Gold prices (monthly, 1336 records, 1915-present) — template=5
-gold = get_economic_data(1333, "https://www.macrotrends.net/1333/historical-gold-prices-100-year-chart", freq='M')
-# metadata: {'name': 'Gold Prices', 'currency': '$', 'label': ''}
+// US Unemployment Rate (monthly, 938 records)
+const unemp = await get_economic_data(1316, "https://www.macrotrends.net/1316/us-national-unemployment-rate", "M");
+// metadata: {name: 'U.S. Unemployment Rate', label: '%'}
 
-# US Unemployment Rate (monthly, 938 records)
-unemp = get_economic_data(1316, "https://www.macrotrends.net/1316/us-national-unemployment-rate", freq='M')
-# metadata: {'name': 'U.S. Unemployment Rate', 'label': '%'}
-
-# Debt-to-GDP ratio (monthly, 712 records)
-debt_gdp = get_economic_data(1381, "https://www.macrotrends.net/1381/debt-to-gdp-ratio-historical-chart", freq='M')
+// Debt-to-GDP ratio (monthly, 712 records)
+const debt_gdp = await get_economic_data(1381, "https://www.macrotrends.net/1381/debt-to-gdp-ratio-historical-chart", "M");
 ```
 
 ### metadata fields
 
-```python
-{
-    'name':            'Fed Funds Interest Rate',  # chart title
-    'tableHeaderName': 'Fed Funds Interest Rate',
-    'currency':        '',            # '$' for dollar-denominated series
-    'label':           '%',          # units label
-    'chartType':       'line',
-    'mobileChartType': 'line',
-    'lineWidth':       2,
-    'positiveColor':   '#2caffe',
-    'negativeColor':   '',
-    'decimals':        '',
-    'chartScale':      'linear',
-    'seriesUnits':     ''
-}
+```ts
+({
+  name:            "Fed Funds Interest Rate",  // chart title
+  tableHeaderName: "Fed Funds Interest Rate",
+  currency:        "",            // '$' for dollar-denominated series
+  label:           "%",          // units label
+  chartType:       "line",
+  mobileChartType: "line",
+  lineWidth:       2,
+  positiveColor:   "#2caffe",
+  negativeColor:   "",
+  decimals:        "",
+  chartScale:      "linear",
+  seriesUnits:     "",
+})
 ```
 
 ### Available frequency codes
@@ -420,31 +420,31 @@ Try `D` first, fall back to `M` if you get `null`.
 
 One function that handles all three embedded-JS patterns:
 
-```python
-import json, re
-from helpers import http_get
+```ts
+/** Extract a JS array variable from Macrotrends iframe HTML. */
+function extract_chart_var(html: string, var_name: string): any[] {
+  const esc = var_name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = html.match(new RegExp(`var\\s+${esc}\\s*=\\s*\\[`));
+  if (!m) return [];
+  const si = html.indexOf("[", m.index);
+  let bc = 0;
+  for (let j = si; j < html.length; j++) {
+    const ch = html[j];
+    if (ch === "[") bc += 1;
+    else if (ch === "]") {
+      bc -= 1;
+      if (bc === 0) return JSON.parse(html.slice(si, j + 1));
+    }
+  }
+  return [];
+}
 
-def extract_chart_var(html: str, var_name: str) -> list:
-    """Extract a JS array variable from Macrotrends iframe HTML."""
-    m = re.search(rf'var\s+{re.escape(var_name)}\s*=\s*\[', html)
-    if not m:
-        return []
-    si = html.index('[', m.start())
-    bc = 0
-    for j, ch in enumerate(html[si:], si):
-        if ch == '[':   bc += 1
-        elif ch == ']':
-            bc -= 1
-            if bc == 0:
-                return json.loads(html[si:j+1])
-    return []
+// Works for dataDaily, chartData, or originalData:
+const html = await http_get("https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/stock_price_history.php?t=AAPL&yb=15");
+const daily = extract_chart_var(html, "dataDaily");
 
-# Works for dataDaily, chartData, or originalData:
-html = http_get("https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/stock_price_history.php?t=AAPL&yb=15")
-daily = extract_chart_var(html, 'dataDaily')
-
-html2 = http_get("https://www.macrotrends.net/assets/php/chart_iframe_comp.php?id=2577&url=sp500-pe-ratio-price-to-earnings-chart")
-pe_data = extract_chart_var(html2, 'originalData')
+const html2 = await http_get("https://www.macrotrends.net/assets/php/chart_iframe_comp.php?id=2577&url=sp500-pe-ratio-price-to-earnings-chart");
+const pe_data = extract_chart_var(html2, "originalData");
 ```
 
 ---
@@ -453,37 +453,37 @@ pe_data = extract_chart_var(html2, 'originalData')
 
 ### Stock pages
 
-```python
-STOCK_BASE = "https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/"
+```ts
+const STOCK_BASE = "https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/";
 
-# Price history OHLCV
-f"{STOCK_BASE}stock_price_history.php?t={ticker}"                        # all history
-f"{STOCK_BASE}stock_price_history.php?t={ticker}&yb={years}"             # last N years
+// Price history OHLCV
+`${STOCK_BASE}stock_price_history.php?t=${ticker}`;                        // all history
+`${STOCK_BASE}stock_price_history.php?t=${ticker}&yb=${years}`;            // last N years
 
-# Market cap
-f"{STOCK_BASE}market_cap.php?t={ticker}&yb={years}"
+// Market cap
+`${STOCK_BASE}market_cap.php?t=${ticker}&yb=${years}`;
 
-# Fundamentals
-f"{STOCK_BASE}fundamental_iframe.php?t={ticker}&type={type}&statement={stmt}&freq={freq}&sub=&yb={years}"
-# type/statement combos: pe-ratio/price-ratios, revenue/income-statement,
-#                        total-assets/balance-sheet, current-ratio/ratios
+// Fundamentals
+`${STOCK_BASE}fundamental_iframe.php?t=${ticker}&type=${type}&statement=${stmt}&freq=${freq}&sub=&yb=${years}`;
+// type/statement combos: pe-ratio/price-ratios, revenue/income-statement,
+//                        total-assets/balance-sheet, current-ratio/ratios
 
-# Metrics
-f"{STOCK_BASE}fundamental_metric.php?t={ticker}&chart={metric}&sub=&yb={years}"
-# metrics: profit-margin
+// Metrics
+`${STOCK_BASE}fundamental_metric.php?t=${ticker}&chart=${metric}&sub=&yb=${years}`;
+// metrics: profit-margin
 
-# Dividend yield
-f"{STOCK_BASE}dividend_yield.php?t={ticker}&yb={years}"
+// Dividend yield
+`${STOCK_BASE}dividend_yield.php?t=${ticker}&yb=${years}`;
 ```
 
 ### Economic / index pages
 
-```python
-# From numeric ID + URL slug (read from page source or page URL)
-f"https://www.macrotrends.net/assets/php/chart_iframe_comp.php?id={id}&url={slug}"
+```ts
+// From numeric ID + URL slug (read from page source or page URL)
+`https://www.macrotrends.net/assets/php/chart_iframe_comp.php?id=${id}&url=${slug}`;
 
-# Economic indicator JSON API (requires Referer header)
-f"https://www.macrotrends.net/economic-data/{page_id}/{freq}"
+// Economic indicator JSON API (requires Referer header)
+`https://www.macrotrends.net/economic-data/${page_id}/${freq}`;
 ```
 
 ---
@@ -493,8 +493,8 @@ f"https://www.macrotrends.net/economic-data/{page_id}/{freq}"
 - **No rate limiting observed** at any tested volume. 10 rapid requests to the same stock iframe completed in 1.8s with no throttling, CAPTCHA, or 429 errors.
 - **Default UA works** (`Mozilla/5.0`) for most endpoints. The iframe PHP files never 403'd.
 - **Chrome UA needed** for some main HTML pages (not data endpoints): use when fetching `/stocks/charts/...` or `/2015/...` wrapper pages if you get 403. Switch to:
-  ```python
-  headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+  ```ts
+  const headers = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" };
   ```
 - **Referer required** for `/economic-data/{id}/{freq}` — send the page URL as `Referer`. Without it, the request is allowed but you get a 403 on some pages.
 - **No cookies, sessions, or auth tokens** needed for any endpoint.
@@ -503,7 +503,7 @@ f"https://www.macrotrends.net/economic-data/{page_id}/{freq}"
 
 ## Gotchas
 
-**Main page URL ≠ data page:** Some URLs redirect to different content. `/1316/us-national-debt-by-year` redirects to `/1316/us-national-unemployment-rate`. Always check the final URL with `r.url` if the returned data looks wrong. Use the final URL as the Referer.
+**Main page URL ≠ data page:** Some URLs redirect to different content. `/1316/us-national-debt-by-year` redirects to `/1316/us-national-unemployment-rate`. Always check the final URL (`fetch(...).then(r => r.url)`) if the returned data looks wrong. Use the final URL as the Referer.
 
 **yb parameter controls history depth:**
 - `yb=1` → ~250 records (last year)
@@ -511,27 +511,28 @@ f"https://www.macrotrends.net/economic-data/{page_id}/{freq}"
 - omit → full history (AAPL: 11428 records to 1980; default for most queries)
 
 **Two iframe patterns for economic pages:** Pages at `macrotrends.net/NNNN/slug` use either `chart_iframe_comp.php` (→ `originalData`) or `generateChart` + `/economic-data/` API. Check the main page HTML to detect which:
-```python
-if 'chart_iframe_comp.php' in html:   # use extract_index_chart()
-elif 'highchartsURL' in html:          # use get_economic_data()
+```ts
+if (html.includes("chart_iframe_comp.php")) {   // use extract_index_chart()
+} else if (html.includes("highchartsURL")) {      // use get_economic_data()
+}
 ```
 
 **Gold data has two price columns:**
-```python
-{'id': 'GOLDAMGBD228NLBM', 'date': '2026-04-01', 'close': '5177.19', 'close1': '5177.190'}
-# 'close'  = inflation-adjusted price (base year adjusts over time)
-# 'close1' = nominal USD price (the raw market price)
+```ts
+({ id: "GOLDAMGBD228NLBM", date: "2026-04-01", close: "5177.19", close1: "5177.190" })
+// 'close'  = inflation-adjusted price (base year adjusts over time)
+// 'close1' = nominal USD price (the raw market price)
 ```
 
 **Economic API frequency codes:** Only `D` and `M` consistently return data across most series. `A` and `Q` return `null` for most economic indicators. Always try `D` first.
 
 **chartData fields vary by metric:**
-- `market_cap.php` → `{'date', 'v1'}` (v1 = market cap in $B)
-- `fundamental_iframe.php` type=pe-ratio → `{'date', 'v1', 'v2', 'v3'}` (stock price, EPS, PE)
-- `fundamental_iframe.php` type=revenue → `{'date', 'v1', 'v2', 'v3'}` (TTM revenue, quarterly revenue, YoY%)
-- `fundamental_metric.php` chart=profit-margin → `{'date', 'v1', 'v2', 'v3'}` (gross%, operating%, net%)
-- `dividend_yield.php` → `{'date', 'c', 'ttm_d', 'ttm_dy'}` (price, dividend, yield%)
+- `market_cap.php` → `{date, v1}` (v1 = market cap in $B)
+- `fundamental_iframe.php` type=pe-ratio → `{date, v1, v2, v3}` (stock price, EPS, PE)
+- `fundamental_iframe.php` type=revenue → `{date, v1, v2, v3}` (TTM revenue, quarterly revenue, YoY%)
+- `fundamental_metric.php` chart=profit-margin → `{date, v1, v2, v3}` (gross%, operating%, net%)
+- `dividend_yield.php` → `{date, c, ttm_d, ttm_dy}` (price, dividend, yield%)
 
-**Bracket matching required for large arrays:** The `var dataDaily = [...]` in stock iframes is ~450KB with 3772 OHLCV records. The `re.DOTALL` greedy approach works but is slow; bracket-counting (`bc` pattern above) is O(n) and fast.
+**Bracket matching required for large arrays:** The `var dataDaily = [...]` in stock iframes is ~450KB with 3772 OHLCV records. A greedy dot-all regex works but is slow; bracket-counting (`bc` pattern above) is O(n) and fast.
 
 **No public API for ticker lookup:** To find the company slug for a URL, check the search endpoint: `https://www.macrotrends.net/production/stocks/desktop/PRODUCTION/ticker_search_list.php?v=YYYYMMDD` — but the stock price iframe only needs the ticker symbol (`?t=AAPL`), not the slug.

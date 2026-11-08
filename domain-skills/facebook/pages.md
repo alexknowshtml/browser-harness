@@ -72,8 +72,8 @@ Unlike a Group, a Page's header carries useful signal on its own — category,
 verified, follower count, website. Pull it in one JS call before you start
 scrolling the feed.
 
-```python
-meta = js("""
+```ts
+const meta = await js(`
   ({
     name: document.querySelector('h1')?.innerText || null,
     verified: !!document.querySelector('h1 svg[aria-label*="Verified"]'),
@@ -85,7 +85,7 @@ meta = js("""
     website_redirector: (Array.from(document.querySelectorAll('a[href^="https://l.facebook.com/l.php"]'))
       .find(a => !a.closest('div[role="article"]'))?.href) || null,
   })
-""")
+`)
 ```
 
 Decode `website_redirector` with the same helper as post links (see below).
@@ -95,13 +95,13 @@ Decode `website_redirector` with the same helper as post links (see below).
 Same collect-as-you-go pattern as groups. FB virtualizes the Page feed too —
 scrolled-past posts unmount, so scroll-then-collect loses them.
 
-```python
-seen = {}  # permalink -> dict
-TARGET = 50
-MAX_SCROLLS = 30
+```ts
+const seen: Record<string, any> = {}  // permalink -> object
+const TARGET = 50
+const MAX_SCROLLS = 30
 
-for i in range(MAX_SCROLLS):
-    batch = js("""
+for (let i = 0; i < MAX_SCROLLS; i++) {
+  const batch = (await js(`
       Array.from(document.querySelectorAll('div[role="article"]')).map(el => {
         const link = el.querySelector('a[href*="/posts/"][href*="pfbid"], a[href*="/permalink.php"], a[href*="/story.php"]');
         const body = el.querySelector('div[data-ad-preview="message"], div[data-ad-comet-preview="message"]');
@@ -115,13 +115,12 @@ for i in range(MAX_SCROLLS):
           externals: externals,
         };
       }).filter(p => p.url)
-    """) or []
-    for p in batch:
-        seen.setdefault(p["url"], p)
-    if len(seen) >= TARGET:
-        break
-    scroll(640, 400, dy=900)
-    wait(2.5)
+    `)) || []
+  for (const p of batch) seen[p.url] ??= p
+  if (Object.keys(seen).length >= TARGET) break
+  await scroll(640, 400, 900)
+  await wait(2.5)
+}
 ```
 
 Notes:
@@ -136,13 +135,11 @@ Notes:
 Identical to groups.md — every outbound link is wrapped in
 `https://l.facebook.com/l.php?u={URL-encoded real URL}&h=...`. Strip the wrapper.
 
-```python
-from urllib.parse import urlparse, parse_qs, unquote
-def decode_fb_link(href):
-    if not href.startswith("https://l.facebook.com/l.php"):
-        return href
-    q = parse_qs(urlparse(href).query)
-    return unquote(q["u"][0]) if "u" in q else href
+```ts
+function decode_fb_link(href: string): string {
+  if (!href.startsWith("https://l.facebook.com/l.php")) return href
+  return new URL(href).searchParams.get("u") ?? href  // searchParams already URL-decodes
+}
 ```
 
 ## Handoff to Firecrawl
@@ -151,11 +148,13 @@ Same pattern as groups — Pages are the walled-garden surface that Harness is
 good at; the external URLs the Page has shared are public and better suited to
 Firecrawl's schema-native extraction.
 
-```python
-external_urls = sorted({decode_fb_link(x) for p in seen.values() for x in p["externals"]})
-print(f"harvested {len(external_urls)} unique external URLs from Page")
-# In the calling conversation:
-#   firecrawl_extract(urls=external_urls, prompt="...", schema={...})
+```ts
+const external_urls = [...new Set(
+  Object.values(seen).flatMap((p: any) => p.externals.map(decode_fb_link)),
+)].sort()
+console.log(`harvested ${external_urls.length} unique external URLs from Page`)
+// In the calling conversation:
+//   firecrawl_extract(urls=external_urls, prompt="...", schema={...})
 ```
 
 ## Rate-limit discipline
@@ -176,8 +175,8 @@ at the screen, and don't try to auto-resolve.
 
 ## Self-inspection block (run when selectors stop working)
 
-```python
-print(js("""
+```ts
+console.log(await js(`
   ({
     articles: document.querySelectorAll('div[role="article"]').length,
     body_preview_a: document.querySelectorAll('div[data-ad-preview="message"]').length,
@@ -188,33 +187,32 @@ print(js("""
     story_php: document.querySelectorAll('a[href*="/story.php"]').length,
     h1_present: !!document.querySelector('h1'),
   })
-"""))
-# If any count is 0 on a Page you know has posts, the selector drifted.
-# Open DevTools, inspect a post, find the new stable attribute, update the
-# DOM anchors table above.
+`))
+// If any count is 0 on a Page you know has posts, the selector drifted.
+// Open DevTools, inspect a post, find the new stable attribute, update the
+// DOM anchors table above.
 ```
 
 ## Full example — mine one Page, emit JSON for downstream tools
 
 ```bash
-cd ~/Developer/browser-harness && uv run browser-harness <<'PY'
-import json, sys
-from urllib.parse import urlparse, parse_qs, unquote
+cd ~/Developer/browser-harness && browser-harness <<'TS'
+const PAGE = "BoatingOntario.ca"   // vanity slug OR numeric Page ID
+const TARGET = 30
+const MAX_SCROLLS = 25
 
-PAGE = "BoatingOntario.ca"   # vanity slug OR numeric Page ID
-TARGET = 30
-MAX_SCROLLS = 25
+await goto(`https://www.facebook.com/${PAGE}/posts`)
+await wait_for_load()
+await wait(3)
 
-goto(f"https://www.facebook.com/{PAGE}/posts")
-wait_for_load()
-wait(3)
+const info = await page_info()
+if (info.url.includes("/checkpoint/") || info.url.includes("/login")) {
+  console.error("AUTH_WALL — stop and have the account re-verify.")
+  process.exit(1)
+}
 
-info = page_info()
-if "/checkpoint/" in info["url"] or "/login" in info["url"]:
-    sys.exit("AUTH_WALL — stop and have the account re-verify.")
-
-# Header metadata
-meta = js("""
+// Header metadata
+const meta = await js(`
   ({
     name: document.querySelector('h1')?.innerText || null,
     verified: !!document.querySelector('h1 svg[aria-label*="Verified"]'),
@@ -224,13 +222,13 @@ meta = js("""
     website_redirector: (Array.from(document.querySelectorAll('a[href^="https://l.facebook.com/l.php"]'))
       .find(a => !a.closest('div[role="article"]'))?.href) || null,
   })
-""")
+`)
 
-# Feed sweep
-seen = {}
-empty_streak = 0
-for _ in range(MAX_SCROLLS):
-    batch = js("""
+// Feed sweep
+const seen: Record<string, any> = {}
+let empty_streak = 0
+for (let i = 0; i < MAX_SCROLLS; i++) {
+  const batch = (await js(`
       Array.from(document.querySelectorAll('div[role="article"]')).map(el => {
         const link = el.querySelector('a[href*="/posts/"][href*="pfbid"], a[href*="/permalink.php"], a[href*="/story.php"]');
         const body = el.querySelector('div[data-ad-preview="message"], div[data-ad-comet-preview="message"]');
@@ -239,34 +237,32 @@ for _ in range(MAX_SCROLLS):
         return { url: link?.href, time: time?.innerText,
                  body: body?.innerText?.slice(0, 4000), externals };
       }).filter(p => p.url)
-    """) or []
-    before = len(seen)
-    for p in batch:
-        seen.setdefault(p["url"], p)
-    empty_streak = empty_streak + 1 if len(seen) == before else 0
-    if len(seen) >= TARGET or empty_streak >= 2:
-        break
-    scroll(640, 400, dy=900)
-    wait(2.5)
+    `)) || []
+  const before = Object.keys(seen).length
+  for (const p of batch) seen[p.url] ??= p
+  empty_streak = Object.keys(seen).length === before ? empty_streak + 1 : 0
+  if (Object.keys(seen).length >= TARGET || empty_streak >= 2) break
+  await scroll(640, 400, 900)
+  await wait(2.5)
+}
 
-def decode(u):
-    if not u.startswith("https://l.facebook.com/l.php"): return u
-    q = parse_qs(urlparse(u).query)
-    return unquote(q["u"][0]) if "u" in q else u
+function decode(u: string): string {
+  if (!u.startsWith("https://l.facebook.com/l.php")) return u
+  return new URL(u).searchParams.get("u") ?? u
+}
 
-posts = list(seen.values())
-if meta.get("website_redirector"):
-    meta["website"] = decode(meta["website_redirector"])
-all_externals = sorted({decode(x) for p in posts for x in p["externals"]})
-screenshot(f"/tmp/fb-page-{PAGE}.png", full=True)
-print(json.dumps({
-    "page": PAGE,
-    "meta": meta,
-    "post_count": len(posts),
-    "posts": posts,
-    "external_urls": all_externals,
-}, ensure_ascii=False))
-PY
+const posts = Object.values(seen)
+if (meta.website_redirector) meta.website = decode(meta.website_redirector)
+const all_externals = [...new Set(posts.flatMap((p: any) => p.externals.map(decode)))].sort()
+await screenshot(`/tmp/fb-page-${PAGE}.png`, true)
+console.log(JSON.stringify({
+  page: PAGE,
+  meta,
+  post_count: posts.length,
+  posts,
+  external_urls: all_externals,
+}))
+TS
 ```
 
 The stdout JSON is the handoff payload — parse it in the calling agent and

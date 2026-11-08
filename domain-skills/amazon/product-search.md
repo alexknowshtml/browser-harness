@@ -6,33 +6,33 @@ No CAPTCHA or bot detection was triggered during any test run.
 ## Navigation
 
 ### Direct search URL (fastest, always use this)
-```python
-goto("https://www.amazon.com/s?k=mechanical+keyboard")
-wait_for_load()
-wait(2)  # dynamic content needs ~2s after readyState=complete
+```ts
+await goto("https://www.amazon.com/s?k=mechanical+keyboard")
+await wait_for_load()
+await wait(2)  // dynamic content needs ~2s after readyState=complete
 ```
 
 ### Search box typing (use when you need category filtering)
-```python
-goto("https://www.amazon.com")
-wait_for_load()
-wait(1)
-js("document.querySelector('#twotabsearchtextbox').focus()")
-js("document.querySelector('#twotabsearchtextbox').click()")
-wait(0.3)
-type_text("wireless mouse")
-wait(0.3)
-press_key("Enter")
-wait_for_load()
-wait(2)
+```ts
+await goto("https://www.amazon.com")
+await wait_for_load()
+await wait(1)
+await js("document.querySelector('#twotabsearchtextbox').focus()")
+await js("document.querySelector('#twotabsearchtextbox').click()")
+await wait(0.3)
+await type_text("wireless mouse")
+await wait(0.3)
+await press_key("Enter")
+await wait_for_load()
+await wait(2)
 ```
 
 ### Direct product page
-```python
-# URL pattern: /dp/{ASIN}  or  /dp/{ASIN}?th=1 (Amazon may redirect to add ?th=1)
-goto("https://www.amazon.com/dp/B08Z6X4NK3")
-wait_for_load()
-wait(2)
+```ts
+// URL pattern: /dp/{ASIN}  or  /dp/{ASIN}?th=1 (Amazon may redirect to add ?th=1)
+await goto("https://www.amazon.com/dp/B08Z6X4NK3")
+await wait_for_load()
+await wait(2)
 ```
 
 ## Session Gotcha
@@ -41,10 +41,10 @@ wait(2)
 `goto()` can silently fail to navigate if the current tab resists the navigation
 (observed when the daemon attached to a different real tab). The safe pattern:
 
-```python
-tid = new_tab("https://www.amazon.com/s?k=mechanical+keyboard")
-wait_for_load()
-wait(2)
+```ts
+const tid = await new_tab("https://www.amazon.com/s?k=mechanical+keyboard")
+await wait_for_load()
+await wait(2)
 ```
 
 After that, `goto()` works fine within the same Amazon session.
@@ -55,8 +55,8 @@ After that, `goto()` works fine within the same Amazon session.
 `[data-component-type="s-search-result"]` — confirmed working, yields ~22 results per page.
 
 ### Full extraction (field-tested)
-```python
-results = js("""
+```ts
+const results = await js(`
   Array.from(document.querySelectorAll('[data-component-type="s-search-result"]')).map(el => ({
     asin: el.getAttribute('data-asin'),
     title: el.querySelector('h2 span')?.innerText?.trim(),
@@ -67,7 +67,7 @@ results = js("""
     is_sponsored: !!el.querySelector('.puis-sponsored-label-text'),
     url: el.querySelector('h2 a')?.href
   }))
-""")
+`)
 ```
 
 ### Field notes
@@ -83,8 +83,8 @@ results = js("""
 ## Product Detail Page Extraction
 
 ### Confirmed selectors (field-tested on B08Z6X4NK3)
-```python
-detail = js("""
+```ts
+const detail = await js(`
   ({
     title: document.querySelector('#productTitle')?.innerText?.trim(),
     price: (function() {
@@ -102,7 +102,7 @@ detail = js("""
     bullet_points: Array.from(document.querySelectorAll('#feature-bullets li span.a-list-item'))
                        .map(e => e.innerText?.trim()).filter(t => t)
   })
-""")
+`)
 ```
 
 ### Price field notes
@@ -119,12 +119,12 @@ e.g. `https://www.amazon.com/Best-Sellers-Electronics/zgbs/electronics/`
 ### DOM structure (2025)
 `.zg-item-immersion` **does not exist** — Amazon migrated to CSS modules. Use `[data-asin]` anchored on `[id="gridItemRoot"]`:
 
-```python
-goto("https://www.amazon.com/Best-Sellers-Electronics/zgbs/electronics/")
-wait_for_load()
-wait(2)
+```ts
+await goto("https://www.amazon.com/Best-Sellers-Electronics/zgbs/electronics/")
+await wait_for_load()
+await wait(2)
 
-items = js("""
+const items = await js(`
   Array.from(document.querySelectorAll('[data-asin]')).map(el => {
     var container = el.closest('[id="gridItemRoot"]') || el;
     return {
@@ -135,51 +135,52 @@ items = js("""
       url: 'https://www.amazon.com/dp/' + el.getAttribute('data-asin')
     }
   }).filter(r => r.rank)
-""")
+`)
 ```
 
 Note: Title comes from the product image `alt` attribute — the text title elements use obfuscated CSS module class names that change between deployments.
 
 ## Pagination
 
-```python
-# Get next page URL directly
-next_url = js("document.querySelector('.s-pagination-next')?.href")
-if next_url:
-    goto(next_url)
-    wait_for_load()
-    wait(2)
+```ts
+// Get next page URL directly
+const next_url = await js("document.querySelector('.s-pagination-next')?.href")
+if (next_url) {
+  await goto(next_url)
+  await wait_for_load()
+  await wait(2)
+}
 
-# Or construct by page number
-goto("https://www.amazon.com/s?k=wireless+mouse&page=2")
+// Or construct by page number
+await goto("https://www.amazon.com/s?k=wireless+mouse&page=2")
 ```
 
 ## Result Count
 
-```python
-count_text = js("document.querySelector('[data-component-type=\"s-result-info-bar\"] h1')?.innerText?.trim()")
-# Returns e.g.: '1-16 of over 40,000 results for "wireless mouse"\nSort by:\n...'
-# Extract just the count: count_text.split('\n')[0]
+```ts
+const count_text = await js("document.querySelector('[data-component-type=\"s-result-info-bar\"] h1')?.innerText?.trim()")
+// Returns e.g.: '1-16 of over 40,000 results for "wireless mouse"\nSort by:\n...'
+// Extract just the count: count_text.split('\n')[0]
 ```
 
 ## CAPTCHA Detection
 
 No CAPTCHA was encountered during testing with a logged-in Chrome session. To detect defensively:
 
-```python
-def check_captcha():
-    text = js("document.body.innerText.slice(0,500)") or ""
-    url  = page_info()["url"]
-    return (
-        "captcha" in text.lower()
-        or "enter the characters" in text.lower()
-        or "sorry, we just need to make sure" in text.lower()
-        or "captcha" in url.lower()
-        or "validateCaptcha" in url
-    )
+```ts
+async function check_captcha() {
+  const text = ((await js("document.body.innerText.slice(0,500)")) || "").toLowerCase()
+  const url = (await page_info()).url
+  return (
+    text.includes("captcha")
+    || text.includes("enter the characters")
+    || text.includes("sorry, we just need to make sure")
+    || url.toLowerCase().includes("captcha")
+    || url.includes("validateCaptcha")
+  )
+}
 
-if check_captcha():
-    raise RuntimeError("Amazon CAPTCHA hit — stop and notify user")
+if (await check_captcha()) throw new Error("Amazon CAPTCHA hit — stop and notify user")
 ```
 
 Amazon may serve a CAPTCHA on fresh/anonymous sessions. Using the browser's existing logged-in session avoids this in practice.

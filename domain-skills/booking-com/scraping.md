@@ -43,14 +43,15 @@ Same AWS WAF SDK, plus an `XMLHttpRequest`-based error reporter that POSTs to
 non-browser UA strings.
 
 **Detection in your code:**
-```python
-def is_waf_blocked(html: str) -> bool:
-    return (
-        'AwsWafIntegration' in html
-        or 'awsWafCookieDomainList' in html
-        or 'challenge.js' in html
-        or len(html) < 10_000 and '<title></title>' in html
-    )
+```ts
+function is_waf_blocked(html: string): boolean {
+  return (
+    html.includes("AwsWafIntegration")
+    || html.includes("awsWafCookieDomainList")
+    || html.includes("challenge.js")
+    || (html.length < 10_000 && html.includes("<title></title>"))
+  );
+}
 ```
 
 **What the challenge does:**
@@ -68,7 +69,7 @@ has no value without the WAF token.
 - Chrome desktop (`Mozilla/5.0 ... Chrome/120`)
 - iPhone/Safari mobile
 - `Googlebot/2.1` (HTML pages only; sitemaps are whitelisted)
-- Default `urllib` UA
+- Default `urllib` UA (Python stdlib)
 
 ---
 
@@ -79,34 +80,35 @@ has no value without the WAF token.
 Booking.com whitelists sitemap paths for Googlebot. This lets you enumerate
 millions of property, city, region, and attraction URLs without a browser.
 
-```python
-import gzip, re, urllib.request
+```ts
+const { gunzipSync } = require("node:zlib");
 
-GOOGLEBOT = {"User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)"}
+const GOOGLEBOT = { "User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)" };
+const locs = (xml: string) => [...xml.matchAll(/<loc>(https:\/\/[^<]+)<\/loc>/g)].map((m) => m[1]);
 
-def fetch_sitemap_index(url: str) -> list[str]:
-    """Returns list of child sitemap URLs from an index sitemap."""
-    xml = http_get(url, headers=GOOGLEBOT)
-    return re.findall(r'<loc>(https://[^<]+)</loc>', xml)
+/** Returns list of child sitemap URLs from an index sitemap. */
+async function fetch_sitemap_index(url: string): Promise<string[]> {
+  const xml = await http_get(url, GOOGLEBOT);
+  return locs(xml);
+}
 
-def fetch_sitemap_gz(gz_url: str) -> list[str]:
-    """Decompresses a gzipped sitemap and returns all <loc> URLs."""
-    req = urllib.request.Request(gz_url, headers=GOOGLEBOT)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        data = gzip.decompress(r.read())
-    return re.findall(r'<loc>(https://[^<]+)</loc>', data.decode())
+/** Decompresses a gzipped sitemap and returns all <loc> URLs. */
+async function fetch_sitemap_gz(gz_url: string): Promise<string[]> {
+  const r = await fetch(gz_url, { headers: GOOGLEBOT, signal: AbortSignal.timeout(30_000) });
+  const data = gunzipSync(Buffer.from(await r.arrayBuffer()));
+  return locs(data.toString("utf8"));
+}
 
-# Example: get all en-gb hotel URLs
-hotel_idx = http_get(
-    "https://www.booking.com/sitembk-hotel-index.xml",
-    headers=GOOGLEBOT
-)
-# 74 shards for en-gb; each shard has ~45,000-50,000 property URLs
-en_gb_shards = re.findall(
-    r'<loc>(https://www\.booking\.com/sitembk-hotel-en-gb\.\d+\.xml\.gz)</loc>',
-    hotel_idx
-)
-# hotel_urls = fetch_sitemap_gz(en_gb_shards[0])  # ~50K URLs per shard
+// Example: get all en-gb hotel URLs
+const hotel_idx = await http_get(
+  "https://www.booking.com/sitembk-hotel-index.xml",
+  GOOGLEBOT
+);
+// 74 shards for en-gb; each shard has ~45,000-50,000 property URLs
+const en_gb_shards = [...hotel_idx.matchAll(
+  /<loc>(https:\/\/www\.booking\.com\/sitembk-hotel-en-gb\.\d+\.xml\.gz)<\/loc>/g
+)].map((m) => m[1]);
+// const hotel_urls = await fetch_sitemap_gz(en_gb_shards[0]);  // ~50K URLs per shard
 ```
 
 **Available sitemap categories (confirmed, 275 total):**
@@ -123,8 +125,8 @@ en_gb_shards = re.findall(
 
 ### 2. `robots.txt`
 
-```python
-robots = http_get("https://www.booking.com/robots.txt", headers={"User-Agent": "Mozilla/5.0"})
+```ts
+const robots = await http_get("https://www.booking.com/robots.txt", { "User-Agent": "Mozilla/5.0" });
 ```
 
 - Returns immediately, no WAF.
@@ -138,36 +140,31 @@ It accepts POST requests and returns JSON. Without a session, most queries
 return `Internal Server Error` from the backend (`irene` service), but
 **GraphQL validation errors fire before the backend** and reveal the schema.
 
-```python
-import json, urllib.request, gzip
+```ts
+const GQL_URL = "https://www.booking.com/dml/graphql?lang=en-gb";
+const GQL_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+  "Accept": "application/json",
+  "Content-Type": "application/json",
+  "Origin": "https://www.booking.com",
+  "Referer": "https://www.booking.com/searchresults.html",
+  "x-booking-context-action-name": "searchresults",
+  "x-booking-context-aid": "376510",
+  "x-booking-site-type-id": "1",
+};
 
-GQL_URL = "https://www.booking.com/dml/graphql?lang=en-gb"
-GQL_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-    "Origin": "https://www.booking.com",
-    "Referer": "https://www.booking.com/searchresults.html",
-    "x-booking-context-action-name": "searchresults",
-    "x-booking-context-aid": "376510",
-    "x-booking-site-type-id": "1",
+async function gql(operation_name: string, query: string, variables: Record<string, any> | null = null): Promise<any> {
+  const payload: Record<string, any> = { operationName: operation_name, query };
+  if (variables) payload.variables = variables;
+  // fetch decompresses gzip responses automatically
+  const r = await fetch(GQL_URL, {
+    method: "POST",
+    headers: GQL_HEADERS,
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(20_000),
+  });
+  return JSON.parse(await r.text());
 }
-
-def gql(operation_name: str, query: str, variables: dict = None) -> dict:
-    payload = {"operationName": operation_name, "query": query}
-    if variables:
-        payload["variables"] = variables
-    req = urllib.request.Request(
-        GQL_URL,
-        data=json.dumps(payload).encode(),
-        headers=GQL_HEADERS,
-        method="POST"
-    )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        data = r.read()
-        if r.headers.get("Content-Encoding") == "gzip":
-            data = gzip.decompress(data)
-        return json.loads(data.decode())
 ```
 
 **Confirmed Query type fields (schema, field-tested 2026-04-18):**
@@ -279,17 +276,18 @@ Since `http_get` is blocked, all actual data extraction requires the browser
 
 ### Initial Navigation
 
-```python
-# Always use new_tab() for the first Booking.com load in a session
-tid = new_tab("https://www.booking.com/searchresults.html?ss=Paris&checkin=2026-05-01&checkout=2026-05-03&group_adults=2&no_rooms=1&selected_currency=USD")
-wait_for_load()
-wait(3)  # React hydration takes ~3s after readyState=complete
+```ts
+// Always use new_tab() for the first Booking.com load in a session
+const tid = await new_tab("https://www.booking.com/searchresults.html?ss=Paris&checkin=2026-05-01&checkout=2026-05-03&group_adults=2&no_rooms=1&selected_currency=USD");
+await wait_for_load();
+await wait(3);  // React hydration takes ~3s after readyState=complete
 
-# Check for WAF challenge still running (rare in real Chrome)
-url = page_info()["url"]
-if "chal_t=" in url:
-    wait(5)  # WAF challenge resolving
-    wait_for_load()
+// Check for WAF challenge still running (rare in real Chrome)
+const url = (await page_info()).url;
+if (url.includes("chal_t=")) {
+  await wait(5);  // WAF challenge resolving
+  await wait_for_load();
+}
 ```
 
 ### GDPR / Cookie Consent Banner (EU Visitors)
@@ -297,10 +295,10 @@ if "chal_t=" in url:
 Shown to visitors with EU IP addresses or EU `Accept-Language` headers **after**
 the WAF challenge resolves. It blocks interaction until dismissed.
 
-```python
-def dismiss_cookie_banner():
-    # Booking.com uses data-testid="accept" on the Accept button
-    accepted = js("""
+```ts
+async function dismiss_cookie_banner() {
+  // Booking.com uses data-testid="accept" on the Accept button
+  const accepted = await js(`
         (function() {
             var btn = document.querySelector('[data-testid="accept"]')
                    || document.querySelector('#onetrust-accept-btn-handler')
@@ -308,12 +306,14 @@ def dismiss_cookie_banner():
             if (btn) { btn.click(); return true; }
             return false;
         })()
-    """)
-    return accepted
+    `);
+  return accepted;
+}
 
-# Call immediately after load if you have an EU IP
-if dismiss_cookie_banner():
-    wait(1)
+// Call immediately after load if you have an EU IP
+if (await dismiss_cookie_banner()) {
+  await wait(1);
+}
 ```
 
 The consent banner does **not** appear in the WAF stub — it only renders after
@@ -322,8 +322,8 @@ may not see it at all.
 
 ### Search Results Page Extraction
 
-```python
-results = js("""
+```ts
+const results = await js(`
   Array.from(document.querySelectorAll('[data-testid="property-card"]')).map(el => ({
     name: el.querySelector('[data-testid="title"]')?.innerText?.trim(),
     url: el.querySelector('[data-testid="title-link"]')?.href,
@@ -334,7 +334,7 @@ results = js("""
     availability_note: el.querySelector('[data-testid="availability-rate-information"]')?.innerText?.trim(),
     is_genius: !!el.querySelector('[data-testid="genius-label"]'),
   }))
-""")
+`);
 ```
 
 **Field notes:**
@@ -351,26 +351,27 @@ results = js("""
 
 ### Pagination
 
-```python
-# Method 1: Next page button
-next_btn = js("document.querySelector('[data-testid=\"pagination-next\"]')?.href")
-if next_btn:
-    goto(next_btn)
-    wait_for_load()
-    wait(3)
+```ts
+// Method 1: Next page button
+const next_btn = await js("document.querySelector('[data-testid=\"pagination-next\"]')?.href");
+if (next_btn) {
+  await goto(next_btn);
+  await wait_for_load();
+  await wait(3);
+}
 
-# Method 2: Offset parameter (25 results per page)
-current_url = page_info()["url"]
-offset = 25  # next page
-goto(current_url + f"&offset={offset}")
-wait_for_load()
-wait(3)
+// Method 2: Offset parameter (25 results per page)
+const current_url = (await page_info()).url;
+const offset = 25;  // next page
+await goto(current_url + `&offset=${offset}`);
+await wait_for_load();
+await wait(3);
 ```
 
 ### Property / Hotel Page Extraction
 
-```python
-detail = js("""
+```ts
+const detail = await js(`
   ({
     name: document.querySelector('[data-testid="property-name"]')?.innerText?.trim()
        || document.querySelector('h2.hp__hotel-name, h1.pp-hotel-name-title')?.innerText?.trim(),
@@ -395,7 +396,7 @@ detail = js("""
     lon: document.querySelector('a[href*="maps.google"]')
            ?.href?.match(/[?&]q=([^&]+)/)?.[1]?.split(',')[1],
   })
-""")
+`);
 ```
 
 ### JSON-LD Schema (Property Pages)
@@ -403,8 +404,8 @@ detail = js("""
 Property pages embed JSON-LD when fully rendered in browser. The schema type
 is `Hotel`:
 
-```python
-ld_json = js("""
+```ts
+const ld_json = await js(`
   (function() {
     for (var s of document.querySelectorAll('script[type="application/ld+json"]')) {
       try {
@@ -414,16 +415,16 @@ ld_json = js("""
     }
     return null;
   })()
-""")
-# Returns:
-# {
-#   "@type": "Hotel",
-#   "name": "Hotel de Crillon",
-#   "aggregateRating": {"ratingValue": "9.2", "reviewCount": "1423"},
-#   "address": {"streetAddress": "10 Place de la Concorde", "addressLocality": "Paris", ...},
-#   "geo": {"latitude": 48.865, "longitude": 2.321},
-#   "starRating": {"ratingValue": 5}
-# }
+`);
+// Returns:
+// {
+//   "@type": "Hotel",
+//   "name": "Hotel de Crillon",
+//   "aggregateRating": {"ratingValue": "9.2", "reviewCount": "1423"},
+//   "address": {"streetAddress": "10 Place de la Concorde", "addressLocality": "Paris", ...},
+//   "geo": {"latitude": 48.865, "longitude": 2.321},
+//   "starRating": {"ratingValue": 5}
+// }
 ```
 
 JSON-LD is **not present in the WAF stub** — it only exists in the fully
@@ -434,9 +435,9 @@ rendered page. `http_get` will never see it.
 Booking.com's React app may embed search state in `window.__NEXT_DATA__` or
 legacy `b_hotel_data` globals. Access via:
 
-```python
-next_data = js("window.__NEXT_DATA__")    # dict or None
-b_hotel   = js("window.b_hotel_data")    # dict or None — legacy pages
+```ts
+const next_data = await js("window.__NEXT_DATA__");    // object or null
+const b_hotel   = await js("window.b_hotel_data");     // object or null — legacy pages
 ```
 
 These globals are not present in the WAF stub and their availability depends
@@ -448,8 +449,8 @@ on page version. Prefer data-testid selectors which are more stable.
 
 Booking.com shows prices per night with multiple formatting variants:
 
-```python
-price_patterns = js("""
+```ts
+const price_patterns = await js(`
   ({
     // Search results card price
     search_price: document.querySelector('[data-testid="price-and-discounted-price"]')?.innerText,
@@ -463,7 +464,7 @@ price_patterns = js("""
     // Genius discount tag
     genius_discount: document.querySelector('[data-testid="genius-rate-badge"]')?.innerText,
   })
-""")
+`);
 ```
 
 **Price display nuances:**
@@ -483,30 +484,31 @@ price_patterns = js("""
 The WAF resolves automatically in a real Chrome session. To detect if
 something went wrong:
 
-```python
-def check_booking_waf():
-    url = page_info()["url"]
-    html_snippet = js("document.body?.innerHTML?.slice(0, 500)") or ""
-    return (
-        "chal_t=" in url
-        or "AwsWafIntegration" in html_snippet
-        or "challenge-container" in html_snippet
-    )
+```ts
+async function check_booking_waf() {
+  const url = (await page_info()).url;
+  const html_snippet = (await js("document.body?.innerHTML?.slice(0, 500)")) || "";
+  return (
+    url.includes("chal_t=")
+    || html_snippet.includes("AwsWafIntegration")
+    || html_snippet.includes("challenge-container")
+  );
+}
 
-def wait_past_waf(timeout=15):
-    import time
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if not check_booking_waf():
-            return True
-        wait(1)
-    return False  # timed out — WAF didn't resolve
+async function wait_past_waf(timeout = 15) {
+  const deadline = Date.now() + timeout * 1000;
+  while (Date.now() < deadline) {
+    if (!(await check_booking_waf())) return true;
+    await wait(1);
+  }
+  return false;  // timed out — WAF didn't resolve
+}
 
-# Use after goto():
-goto("https://www.booking.com/searchresults.html?ss=London&checkin=2026-06-01&checkout=2026-06-03&group_adults=2&no_rooms=1")
-wait_for_load()
-wait_past_waf()
-wait(2)  # hydration
+// Use after goto():
+await goto("https://www.booking.com/searchresults.html?ss=London&checkin=2026-06-01&checkout=2026-06-03&group_adults=2&no_rooms=1");
+await wait_for_load();
+await wait_past_waf();
+await wait(2);  // hydration
 ```
 
 ---
@@ -516,32 +518,33 @@ wait(2)  # hydration
 Use this when you need a list of property URLs for a given country or city,
 without needing to scrape search results pages in the browser:
 
-```python
-import gzip, re, urllib.request
+```ts
+const { gunzipSync } = require("node:zlib");
 
-GOOGLEBOT = {"User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)"}
+const GOOGLEBOT = { "User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)" };
 
-def get_hotel_urls_for_country(cc: str, lang: str = "en-gb", max_shards: int = 2) -> list[str]:
-    """Returns property page URLs for a country from sitemaps. No browser needed."""
-    idx_url = f"https://www.booking.com/sitembk-hotel-index.xml"
-    idx = http_get(idx_url, headers=GOOGLEBOT)
-    pattern = rf'<loc>(https://www\.booking\.com/sitembk-hotel-{lang}\.\d+\.xml\.gz)</loc>'
-    shards = re.findall(pattern, idx)[:max_shards]
-    
-    urls = []
-    for shard_url in shards:
-        req = urllib.request.Request(shard_url, headers=GOOGLEBOT)
-        with urllib.request.urlopen(req, timeout=60) as r:
-            xml = gzip.decompress(r.read()).decode()
-        all_urls = re.findall(r'<loc>(https://[^<]+)</loc>', xml)
-        # Filter by country code
-        country_urls = [u for u in all_urls if f"/hotel/{cc}/" in u]
-        urls.extend(country_urls)
-    return urls
+/** Returns property page URLs for a country from sitemaps. No browser needed. */
+async function get_hotel_urls_for_country(cc: string, lang = "en-gb", max_shards = 2): Promise<string[]> {
+  const idx_url = "https://www.booking.com/sitembk-hotel-index.xml";
+  const idx = await http_get(idx_url, GOOGLEBOT);
+  const pattern = new RegExp(String.raw`<loc>(https://www\.booking\.com/sitembk-hotel-${lang}\.\d+\.xml\.gz)</loc>`, "g");
+  const shards = [...idx.matchAll(pattern)].map((m) => m[1]).slice(0, max_shards);
 
-# Example: get French hotel URLs (no browser needed, instant)
-# french_hotels = get_hotel_urls_for_country("fr", max_shards=1)
-# len(french_hotels) -> ~8,000+ URLs from one shard
+  const urls: string[] = [];
+  for (const shard_url of shards) {
+    const r = await fetch(shard_url, { headers: GOOGLEBOT, signal: AbortSignal.timeout(60_000) });
+    const xml = gunzipSync(Buffer.from(await r.arrayBuffer())).toString("utf8");
+    const all_urls = [...xml.matchAll(/<loc>(https:\/\/[^<]+)<\/loc>/g)].map((m) => m[1]);
+    // Filter by country code
+    const country_urls = all_urls.filter((u) => u.includes(`/hotel/${cc}/`));
+    urls.push(...country_urls);
+  }
+  return urls;
+}
+
+// Example: get French hotel URLs (no browser needed, instant)
+// const french_hotels = await get_hotel_urls_for_country("fr", "en-gb", 1);
+// french_hotels.length -> ~8,000+ URLs from one shard
 ```
 
 ---

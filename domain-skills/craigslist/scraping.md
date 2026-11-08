@@ -90,20 +90,20 @@ Confirmed working cities (exact subdomain names):
 | `s=`          | Pagination offset — **ignored in static HTML** |
 
 ### Example URLs
-```python
-# For-sale keyword search
+```ts
+// For-sale keyword search
 "https://sfbay.craigslist.org/search/sss?query=macbook&sort=rel"
 
-# Price-filtered electronics
+// Price-filtered electronics
 "https://sfbay.craigslist.org/search/ela?query=iphone&min_price=100&max_price=500"
 
-# Apartments, 2 bedrooms, price range
+// Apartments, 2 bedrooms, price range
 "https://sfbay.craigslist.org/search/apa?bedrooms=2&min_price=1000&max_price=2500"
 
-# Cars by owner, Toyota
+// Cars by owner, Toyota
 "https://sfbay.craigslist.org/search/cto?auto_make_model=toyota"
 
-# Jobs in another city
+// Jobs in another city
 "https://chicago.craigslist.org/search/jjj?query=python+developer"
 ```
 
@@ -134,132 +134,136 @@ URL pattern: `https://{city}.craigslist.org/{area}/{category_code}/d/{slug}/{pos
 
 ## Parsing search results (field-tested)
 
-```python
-import re
-from helpers import http_get
+```ts
+async function search_craigslist(city: string, category: string, query: string, min_price?: number, max_price?: number) {
+  let params = `query=${query.replaceAll(" ", "+")}&sort=rel`;
+  if (min_price) params += `&min_price=${min_price}`;
+  if (max_price) params += `&max_price=${max_price}`;
+  const url = `https://${city}.craigslist.org/search/${category}?${params}`;
+  const headers = { "User-Agent": "Mozilla/5.0" };
+  const html = await http_get(url, headers);
 
-def search_craigslist(city, category, query, min_price=None, max_price=None):
-    params = f"query={query.replace(' ', '+')}&sort=rel"
-    if min_price: params += f"&min_price={min_price}"
-    if max_price: params += f"&max_price={max_price}"
-    url = f"https://{city}.craigslist.org/search/{category}?{params}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    html = http_get(url, headers=headers)
+  const listings = html.matchAll(
+    new RegExp(
+      String.raw`<li class="cl-static-search-result" title="([^"]+)"[^>]*>\s*` +
+        String.raw`<a href="([^"]+)"[^>]*>.*?` +
+        String.raw`<div class="price">([^<]*)</div>.*?` +
+        String.raw`<div class="location">\s*([^<]*?)\s*</div>`,
+      "gs",
+    ),
+  );
 
-    listings = re.findall(
-        r'<li class="cl-static-search-result" title="([^"]+)"[^>]*>\s*'
-        r'<a href="([^"]+)"[^>]*>.*?'
-        r'<div class="price">([^<]*)</div>.*?'
-        r'<div class="location">\s*([^<]*?)\s*</div>',
-        html, re.DOTALL
-    )
+  const results = [];
+  for (const [, title, url, price, location] of listings) {
+    const pid_match = url.match(/\/(\d+)\.html$/);
+    results.push({
+      post_id: pid_match ? pid_match[1] : null,
+      title,
+      url,
+      price: price.trim() || null,  // null if listing has no price
+      location: location.trim(),
+    });
+  }
+  return results;
+}
 
-    results = []
-    for title, url, price, location in listings:
-        pid_match = re.search(r'/(\d+)\.html$', url)
-        results.append({
-            "post_id": pid_match.group(1) if pid_match else None,
-            "title": title,
-            "url": url,
-            "price": price.strip() or None,  # None if listing has no price
-            "location": location.strip(),
-        })
-    return results
-
-# Usage
-results = search_craigslist("sfbay", "sss", "macbook pro", max_price=1000)
-for r in results[:5]:
-    print(r["post_id"], r["price"], r["location"], r["title"][:50])
+// Usage
+const results = await search_craigslist("sfbay", "sss", "macbook pro", undefined, 1000);
+for (const r of results.slice(0, 5)) {
+  console.log(r.post_id, r.price, r.location, r.title.slice(0, 50));
+}
 ```
 
 ### Handling missing price
 
 Listings without a price have no `<div class="price">` element. The regex above returns an empty string
-for `price`; the example converts that to `None`. A more robust extraction:
+for `price`; the example converts that to `null`. A more robust extraction:
 
-```python
-def parse_listings(html):
-    results = []
-    for block in re.findall(r'<li class="cl-static-search-result"(.*?)</li>', html, re.DOTALL):
-        title = re.search(r'title="([^"]+)"', block)
-        url   = re.search(r'href="([^"]+)"', block)
-        price = re.search(r'<div class="price">([^<]+)</div>', block)
-        loc   = re.search(r'<div class="location">\s*([^<]*?)\s*</div>', block)
-        if not url: continue
-        url_str = url.group(1)
-        pid = re.search(r'/(\d+)\.html$', url_str)
-        results.append({
-            "post_id": pid.group(1) if pid else None,
-            "title": title.group(1) if title else None,
-            "url": url_str,
-            "price": price.group(1).strip() if price else None,
-            "location": loc.group(1).strip() if loc else None,
-        })
-    return results
+```ts
+function parse_listings(html: string) {
+  const results = [];
+  for (const [, block] of html.matchAll(/<li class="cl-static-search-result"(.*?)<\/li>/gs)) {
+    const title = block.match(/title="([^"]+)"/);
+    const url   = block.match(/href="([^"]+)"/);
+    const price = block.match(/<div class="price">([^<]+)<\/div>/);
+    const loc   = block.match(/<div class="location">\s*([^<]*?)\s*<\/div>/);
+    if (!url) continue;
+    const url_str = url[1];
+    const pid = url_str.match(/\/(\d+)\.html$/);
+    results.push({
+      post_id: pid ? pid[1] : null,
+      title: title ? title[1] : null,
+      url: url_str,
+      price: price ? price[1].trim() : null,
+      location: loc ? loc[1].trim() : null,
+    });
+  }
+  return results;
+}
 ```
 
 ## Individual listing page extraction
 
 Listing pages are also fully server-rendered. All fields are present in the raw HTML.
 
-```python
-def get_listing(url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    html = http_get(url, headers=headers)
+```ts
+async function get_listing(url: string) {
+  const headers = { "User-Agent": "Mozilla/5.0" };
+  const html = await http_get(url, headers);
 
-    title    = re.search(r'<span id="titletextonly">([^<]+)</span>', html)
-    price    = re.search(r'<span class="price">(\$[\d,]+)</span>', html)
-    # Location is in parentheses right after the price span
-    location = re.search(
-        r'<span class="price">[^<]+</span><span>\s*\(([^)]+)\)\s*</span>', html
-    )
-    posted   = re.search(r'class="date timeago"[^>]+datetime="([^"]+)"', html)
-    post_id  = re.search(r'post id:\s*(\d+)', html)
+  const title    = html.match(/<span id="titletextonly">([^<]+)<\/span>/);
+  const price    = html.match(/<span class="price">(\$[\d,]+)<\/span>/);
+  // Location is in parentheses right after the price span
+  const location = html.match(/<span class="price">[^<]+<\/span><span>\s*\(([^)]+)\)\s*<\/span>/);
+  const posted   = html.match(/class="date timeago"[^>]+datetime="([^"]+)"/);
+  const post_id  = html.match(/post id:\s*(\d+)/);
 
-    # Description body
-    body_block = re.search(r'section id="postingbody"[^>]*>(.*?)</section>', html, re.DOTALL)
-    body_text  = ""
-    if body_block:
-        raw = re.sub(r'<[^>]+>', '', body_block.group(1)).strip()
-        # Remove the "QR Code Link to This Post" print-only block
-        body_text = re.sub(r'QR Code Link to This Post\s*', '', raw).strip()
-        body_text = re.sub(r'\s+', ' ', body_text)
+  // Description body
+  const body_block = html.match(/section id="postingbody"[^>]*>(.*?)<\/section>/s);
+  let body_text = "";
+  if (body_block) {
+    const raw = body_block[1].replace(/<[^>]+>/g, "").trim();
+    // Remove the "QR Code Link to This Post" print-only block
+    body_text = raw.replace(/QR Code Link to This Post\s*/g, "").trim();
+    body_text = body_text.replace(/\s+/g, " ");
+  }
 
-    # Images
-    images = re.findall(r'https://images\.craigslist\.org/[^\s"\']+_600x450\.jpg', html)
+  // Images
+  const images = html.match(/https:\/\/images\.craigslist\.org\/[^\s"']+_600x450\.jpg/g) ?? [];
 
-    # Attributes (condition, make, model, etc.)
-    attrs = {}
-    for labl, valu in re.findall(
-        r'<span class="labl">([^<]+)</span>.*?<span class="valu">\s*(?:<[^>]+>\s*)*([^<\n]+?)(?:\s*</|\s*<a)',
-        html, re.DOTALL
-    ):
-        attrs[labl.strip().rstrip(':')] = valu.strip()
+  // Attributes (condition, make, model, etc.)
+  const attrs: Record<string, string> = {};
+  for (const [, labl, valu] of html.matchAll(
+    /<span class="labl">([^<]+)<\/span>.*?<span class="valu">\s*(?:<[^>]+>\s*)*([^<\n]+?)(?:\s*<\/|\s*<a)/gs,
+  )) {
+    attrs[labl.trim().replace(/:+$/, "")] = valu.trim();
+  }
 
-    return {
-        "post_id":  post_id.group(1) if post_id else None,
-        "title":    title.group(1) if title else None,
-        "price":    price.group(1) if price else None,
-        "location": location.group(1) if location else None,
-        "posted":   posted.group(1) if posted else None,  # ISO 8601 with TZ
-        "body":     body_text,
-        "images":   images,
-        "attrs":    attrs,
-    }
+  return {
+    post_id:  post_id ? post_id[1] : null,
+    title:    title ? title[1] : null,
+    price:    price ? price[1] : null,
+    location: location ? location[1] : null,
+    posted:   posted ? posted[1] : null,  // ISO 8601 with TZ
+    body:     body_text,
+    images,
+    attrs,
+  };
+}
 ```
 
 ### Sample output — for-sale listing
-```python
-{
-    "post_id":  "7917381408",
-    "title":    "Brand new iphone 15 case and screen protector",
-    "price":    "$6",
-    "location": "cupertino",
-    "posted":   "2026-02-24T16:08:38-0800",
-    "body":     "I bought a new phone. These are brand new! Plz lmk if you are interested.",
-    "images":   ["https://images.craigslist.org/00e0e_xxx_600x450.jpg"],
-    "attrs":    {"condition": "like new", "make / manufacturer": "Apple", "model name / number": "iPhone 15 Plus"},
-}
+```ts
+({
+  post_id:  "7917381408",
+  title:    "Brand new iphone 15 case and screen protector",
+  price:    "$6",
+  location: "cupertino",
+  posted:   "2026-02-24T16:08:38-0800",
+  body:     "I bought a new phone. These are brand new! Plz lmk if you are interested.",
+  images:   ["https://images.craigslist.org/00e0e_xxx_600x450.jpg"],
+  attrs:    { "condition": "like new", "make / manufacturer": "Apple", "model name / number": "iPhone 15 Plus" },
+})
 ```
 
 ### Housing-specific fields
@@ -267,14 +271,15 @@ def get_listing(url):
 Housing listings have `<span class="attr important">` blocks for bedrooms/bathrooms and square footage,
 separate from the `<div class="attr">` attribute grid:
 
-```python
-# BR/BA
-br_ba  = re.search(r'(\d+)BR\s*/\s*(\d+(?:\.\d+)?)Ba', html)
-# Square footage
-sqft   = re.search(r'(\d+)ft<sup>2</sup>', html)
+```ts
+// BR/BA
+const br_ba = html.match(/(\d+)BR\s*\/\s*(\d+(?:\.\d+)?)Ba/);
+// Square footage
+const sqft  = html.match(/(\d+)ft<sup>2<\/sup>/);
 
-if br_ba: bedrooms, bathrooms = br_ba.groups()
-if sqft:  sqft_val = sqft.group(1)
+let bedrooms, bathrooms, sqft_val;
+if (br_ba) [, bedrooms, bathrooms] = br_ba;
+if (sqft) sqft_val = sqft[1];
 ```
 
 ## JSON-LD structured data (alternative extraction path)
@@ -282,24 +287,24 @@ if sqft:  sqft_val = sqft.group(1)
 Each search page includes an `ItemList` JSON-LD block with up to 330 items. Useful when you want
 structured data (price as float, geo coordinates) without regex parsing of HTML:
 
-```python
-import json, re
-from helpers import http_get
+```ts
+const html = await http_get("https://sfbay.craigslist.org/search/sss?query=laptop", { "User-Agent": "Mozilla/5.0" });
+const ld_blocks = [...html.matchAll(/<script type="application\/ld\+json"[^>]*>(.*?)<\/script>/gs)].map((m) => m[1]);
 
-html = http_get("https://sfbay.craigslist.org/search/sss?query=laptop", headers={"User-Agent": "Mozilla/5.0"})
-ld_blocks = re.findall(r'<script type="application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL)
-
-for raw in ld_blocks:
-    data = json.loads(raw)
-    if data.get('@type') == 'ItemList':
-        for item in data['itemListElement']:
-            listing = item['item']
-            print(
-                listing.get('name'),
-                listing.get('offers', {}).get('price'),
-                listing.get('offers', {}).get('priceCurrency'),
-                listing.get('offers', {}).get('availableAtOrFrom', {}).get('address', {}).get('addressLocality'),
-            )
+for (const raw of ld_blocks) {
+  const data = JSON.parse(raw);
+  if (data["@type"] === "ItemList") {
+    for (const item of data.itemListElement) {
+      const listing = item.item;
+      console.log(
+        listing.name,
+        listing.offers?.price,
+        listing.offers?.priceCurrency,
+        listing.offers?.availableAtOrFrom?.address?.addressLocality,
+      );
+    }
+  }
+}
 ```
 
 JSON-LD item fields available: `name`, `description`, `image` (list of URLs),
@@ -322,10 +327,10 @@ s=300 → same 342 listings
 
 **Recommendation**: Do not attempt pagination via `http_get`. Use search filters to narrow results:
 
-```python
-# Instead of paginating, narrow by price range
-under_500 = search_craigslist("sfbay", "sss", "macbook", max_price=500)
-over_500  = search_craigslist("sfbay", "sss", "macbook", min_price=501)
+```ts
+// Instead of paginating, narrow by price range
+const under_500 = await search_craigslist("sfbay", "sss", "macbook", undefined, 500);
+const over_500  = await search_craigslist("sfbay", "sss", "macbook", 501);
 ```
 
 If true pagination is required (e.g. you need more than 350 results), you must use a browser session
@@ -341,14 +346,15 @@ None observed. Craigslist does not block `http_get` requests. During testing:
 
 Defensive check (in case behavior changes):
 
-```python
-def is_blocked(html):
-    return (
-        len(html) < 5000 or
-        "blocked" in html[:2000].lower() or
-        "captcha" in html[:2000].lower() or
-        "cl-static-search-result" not in html
-    )
+```ts
+function is_blocked(html: string) {
+  return (
+    html.length < 5000 ||
+    html.slice(0, 2000).toLowerCase().includes("blocked") ||
+    html.slice(0, 2000).toLowerCase().includes("captcha") ||
+    !html.includes("cl-static-search-result")
+  );
+}
 ```
 
 ## Gotchas
@@ -358,16 +364,16 @@ def is_blocked(html):
   Do not search for `data-pid`, `result-row`, or `cl-search-result` — they are absent.
 
 - **Post ID comes from the URL, not an attribute**: Extract it as the numeric segment before `.html`
-  in the listing URL: `re.search(r'/(\d+)\.html$', url).group(1)`.
+  in the listing URL: `url.match(/\/(\d+)\.html$/)![1]`.
 
 - **Price may be absent**: Free listings and "contact for price" listings have no `<div class="price">`.
-  The regex returns an empty string; convert to `None`.
+  The regex returns an empty string; convert to `null`.
 
 - **`s=` pagination is a no-op in static HTML**: The fallback renderer always returns the full result set.
   Don't loop over pages — filter instead.
 
-- **HTML entities in titles**: Titles may contain `&amp;`, `&quot;`, etc. Use
-  `html.unescape(title)` from the standard library if you need clean text.
+- **HTML entities in titles**: Titles may contain `&amp;`, `&quot;`, etc. Run them through an
+  unescape helper (see the last gotcha) if you need clean text.
 
 - **URL structure varies by area**: The area code in the URL (`/sby/`, `/sfc/`, `/eby/`) is the sub-area
   of the city (e.g. South Bay, San Francisco, East Bay). It is part of the listing URL but not needed
@@ -384,7 +390,10 @@ def is_blocked(html):
   (shown in the extractor above).
 
 - **HTML-escaped body text**: Description bodies may contain `&amp;`, `&lt;`, etc. Unescape if needed:
-  ```python
-  import html as html_lib
-  body_clean = html_lib.unescape(body_text)
+  ```ts
+  const unescape = (s: string) =>
+    s.replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos|#39);/gi, (m, e) =>
+      e[0] === "#" ? String.fromCodePoint(e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10))
+        : ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" } as Record<string, string>)[e.toLowerCase()] ?? m);
+  const body_clean = unescape(body_text);
   ```
