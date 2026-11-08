@@ -55,8 +55,15 @@ def ensure_daemon(wait=60.0, name=None, env=None):
     import subprocess
 
     e = {**os.environ, **({"BU_NAME": name} if name else {}), **(env or {})}
+    # TypeScript daemon (#1600): same socket and protocol, reconnects on its own.
+    # Rollback: BU_DAEMON=py runs daemon.py again.
+    if os.environ.get("BU_DAEMON") == "py":
+        cmd = ["uv", "run", "daemon.py"]
+    else:
+        import shutil
+        cmd = [shutil.which("bun") or os.path.expanduser("~/.bun/bin/bun"), "daemon.ts"]
     p = subprocess.Popen(
-        ["uv", "run", "daemon.py"],
+        cmd,
         cwd=os.path.dirname(os.path.abspath(__file__)),
         env=e,
         stdout=subprocess.DEVNULL,
