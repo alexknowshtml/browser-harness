@@ -5,6 +5,9 @@
 //   TS
 import * as helpers from "./helpers";
 import * as admin from "./admin";
+import { detect } from "./lang";
+import { spawnSync } from "node:child_process";
+import { join, dirname } from "node:path";
 
 const HELP = `Browser Harness (TypeScript)
 
@@ -30,6 +33,11 @@ async function main() {
     process.exit(1);
   }
   const code = await Bun.stdin.text();
+  // Transitional (#1604): a Python snippet goes to the Python runner unchanged, same stdout, stderr and exit code.
+  if (detect(code) === "py") {
+    const r = spawnSync(join(dirname(import.meta.path), "venv/bin/browser-harness"), process.argv.slice(2), { input: code, stdio: ["pipe", "inherit", "inherit"] });
+    process.exit(r.status ?? 1);
+  }
   await admin.ensure_daemon();
   const scope = { ...helpers, ...admin };
   const names = Object.keys(scope).filter((k) => /^[A-Za-z_$][\w$]*$/.test(k));
