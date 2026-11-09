@@ -1,9 +1,10 @@
-// Live gate on real Helium via the 9222 tunnel (#1600). Test BU_NAMEs only; never BU_NAME=default.
+// Live gate on real Helium (#1600). Defaults to the hidden jobs Helium on 9333 (#1627) so test pages never open in
+// Alex's windows; LIVE_CDP=http://127.0.0.1:9222 targets his. Test BU_NAMEs only; never BU_NAME=default.
 // Runs the TS live scenario on the TS daemon twice and checks the runs agree and hold no errors. The Python
 // baseline it once compared against (38/38 identical, #1600) went with the Python harness in #1604.
 import { startDaemon, stopDaemon } from "./parity";
 const DIR = import.meta.dir + "/..";
-const CDP = process.env.LIVE_CDP || "http://127.0.0.1:9222";
+const CDP = process.env.LIVE_CDP || "http://127.0.0.1:9333";
 async function run(name: string) {
   const d = await startDaemon(name, CDP);
   const p = Bun.spawn(["bun", "tests/live_scenario.ts"], { cwd: DIR, env: { ...process.env, BU_NAME: name, BU_CDP_WS: CDP }, stdout: "pipe", stderr: "pipe" });

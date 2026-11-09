@@ -2,7 +2,8 @@
 // same shape (#1600; Python comparison dropped with the Python harness in #1604). Callers go through
 // scripts/browser-harness with BU_NAME set.
 import { startDaemon, stopDaemon } from "./parity";
-const CDP = "http://127.0.0.1:9222";
+// Hidden jobs Helium by default (#1627); LIVE_CDP=http://127.0.0.1:9222 targets Alex's.
+const CDP = process.env.LIVE_CDP || "http://127.0.0.1:9333";
 const A = "/home/alexhillman/andy";
 const CALLERS: Array<[string, string[]]> = [
   ["social-instagram-web (dry run)", ["bun", `${A}/scripts/social-instagram-web.ts`]],
@@ -15,7 +16,7 @@ async function run(name: string) {
   const d = await startDaemon(name, CDP);
   const out: any[] = [];
   for (const [label, cmd] of CALLERS) {
-    const p = Bun.spawn(cmd, { cwd: A, env: { ...process.env, BU_NAME: name }, stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawn(cmd, { cwd: A, env: { ...process.env, BU_NAME: name, BU_PROFILE: CDP.includes(":9333") ? "jobs" : "default" }, stdout: "pipe", stderr: "pipe" });
     const k = setTimeout(() => p.kill(), 240_000);
     const so = await new Response(p.stdout).text(), se = await new Response(p.stderr).text(), st = await p.exited;
     clearTimeout(k);

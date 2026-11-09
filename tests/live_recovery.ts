@@ -1,6 +1,8 @@
-// Gate 4 live (#1600): TS daemon behind a local TCP relay to Helium's 9222. Cut the relay mid-session,
+// Gate 4 live (#1600): TS daemon behind a local TCP relay to Helium (hidden jobs Helium on 9333 by default, #1627;
+// LIVE_PORT=9222 targets Alex's). Cut the relay mid-session,
 // expect the next call to reconnect to the same tab; then idle IDLE_MIN minutes with real keepalive (30s/120s).
 import { startDaemon, stopDaemon, raw } from "./parity";
+const LIVE_PORT = Number(process.env.LIVE_PORT || 9333);
 const IDLE_MIN = Number(process.env.IDLE_MIN || 11);
 const conns = new Set<any>();
 const relay = Bun.listen({
@@ -8,7 +10,7 @@ const relay = Bun.listen({
   socket: {
     async open(c) {
       conns.add(c);
-      const up = await Bun.connect({ hostname: "127.0.0.1", port: 9222, socket: {
+      const up = await Bun.connect({ hostname: "127.0.0.1", port: LIVE_PORT, socket: {
         data(_u, d) { c.write(d); }, close() { c.end(); }, error() { c.end(); },
       } });
       (c as any).data = { up, q: [] };
@@ -38,7 +40,7 @@ const r2 = await title();
 const log2 = await Bun.file("/tmp/bu-lr1600.log").text();
 const drops = (log2.match(/browser socket lost/gm) || []).length;
 console.log(`${r2.result && drops === 1 ? "PASS" : "FAIL"} live idle ${IDLE_MIN} min: socket stayed up (drops after cut: ${drops - 1}), call ok: ${!!r2.result}`);
-await fetch(`http://127.0.0.1:9222/json/close/${tid}`).catch(() => {});
+await fetch(`http://127.0.0.1:${LIVE_PORT}/json/close/${tid}`).catch(() => {});
 await stopDaemon("lr1600", d);
 relay.stop(true);
 console.log(log2.split("\n").filter((l) => /lost|reconnect|keepalive/.test(l)).join("\n"));
