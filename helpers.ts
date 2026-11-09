@@ -1,4 +1,4 @@
-// Browser control via CDP. TypeScript port of helpers.py (#1600). Read, edit, extend -- this file is yours.
+// Browser control via CDP. TypeScript since #1600; the Python original was removed in #1604. Read, edit, extend -- this file is yours.
 // Same names as the Python helpers (snake_case kept so snippets translate 1:1); every call is async.
 import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";

@@ -1,41 +1,32 @@
-// Snippet language detection for the runner (#1604). Transitional: the runner still accepts Python
-// snippets until the Python harness is deleted, and needs to tell the two apart with no flag.
-// Parsers decide (compile(), since ast.parse accepts a top-level await), never keywords in raw text: Python snippets often carry JS inside js("...") strings
-// (=>, await, const), so a text match would misfire.
-import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+// Python-snippet check for the runner (#1604). The harness runs TypeScript only. A Python snippet gets a clear
+// redirect with the TS shape and exit 2, never a confusing SyntaxError or "print is not defined".
+// The same line markers as the jfdi-guards harness-python rule, which caught 267/267 real Python snippets with
+// 0 false positives on 641 TS doc snippets. // comment lines are skipped: TS prose like "rows[1:] = ..." is fine.
+const PY_LINE = [
+  /(^|[;\s])print\s*\(/,
+  /^\s*(try|except\b[^:{]*|finally)\s*:/,
+  /\[\s*-?\d*\s*:\s*-?\d*\s*\]/,
+  /^\s*(import\s+[\w.]+(\s*,\s*[\w.]+)*|from\s+[\w.]+\s+import\s+.+)\s*$/,
+  /^\s*(def|class)\s+\w+[^{]*:\s*(#.*)?$/,
+  /^\s*with\s+.+\s+as\s+\w+\s*:\s*$/,
+  /^\s*(for\s+\w+(\s*,\s*\w+)*\s+in\s+.+|while\s+.+|if\s+.+|elif\s+.+|else|try|except(\s+.+)?|finally)\s*:\s*(#.*)?$/,
+  /\btime\.sleep\s*\(/,
+  /\bjson\.(dumps|loads)\s*\(/,
+];
 
-const HERE = dirname(import.meta.path);
-const PY = join(HERE, "venv/bin/python");
+export const looksPython = (code: string): boolean =>
+  code.split("\n").some((l) => !/^\s*\/\//.test(l) && PY_LINE.some((re) => re.test(l)));
 
-export function parsesAsPython(code: string): boolean {
-  if (!existsSync(PY)) return false;
-  const r = spawnSync(PY, ["-I", "-c", "import sys; compile(sys.stdin.read(), '<snippet>', 'exec')"], { input: code, encoding: "utf8" });
-  return r.status === 0;
-}
+export const PYTHON_TEXT = `browser-harness runs TypeScript now (#1604). This snippet looks like Python, so it did not run.
+Rewrite it in TypeScript:
 
-export function parsesAsTs(code: string): boolean {
-  try {
-    new Bun.Transpiler({ loader: "ts" }).transformSync(code);
-    return true;
-  } catch {
-    return false;
-  }
-}
+  scripts/browser-harness <<'TS'
+  await temp_tab("https://example.com", async (tid) => {
+    await wait(3)
+    console.log(JSON.stringify(await page_info()))
+  })
+  TS
 
-/**
- * "py" | "ts". Python if only Python parses. TS if only TS parses (top-level await, const, arrow
- * functions outside strings). When both parse (call-only one-liners like `print(x)`), a JS global (console., Bun., JSON.) with
- * no print( means TS; anything else stays Python, which is what every caller sent before #1604.
- */
-export function detect(code: string): "py" | "ts" {
-  const py = parsesAsPython(code);
-  if (!py) return "ts";
-  if (!parsesAsTs(code)) return "py";
-  // Strings are dropped first: Python snippets carry JS (JSON.stringify, console.log) inside js("...").
-  const bare = code.replace(/"""[\s\S]*?"""|'\'\'[\s\S]*?'\'\'|`(?:[^`\\]|\\.)*`|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, '""');
-  return /\b(console|Bun|JSON|Object|Array|Math|process)\.\w+/.test(bare) && !/\bprint\s*\(/.test(bare) ? "ts" : "py";
-}
-
-if (import.meta.main) console.log(detect(await Bun.stdin.text()));
+print(x) -> console.log(x). time.sleep(n) -> await wait(n). json.dumps -> JSON.stringify.
+with temp_tab(u) as tid: -> await temp_tab(u, async (tid) => {...}). cdp("M", a=1) -> await cdp("M", {a: 1}).
+Helpers keep their snake_case names and are all async. Guide: SKILL.md`;

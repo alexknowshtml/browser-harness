@@ -1,4 +1,4 @@
-// Helper scenario, TS side. Paired with scenario.py; outputs must match (#1600 gate 2).
+// Helper scenario, TS side. Output must match tests/golden/helpers.json, recorded from scenario.py on the Python harness (#1600 gate 2).
 import * as h from "../helpers";
 const out: any[] = [];
 const rec = async (label: string, fn: () => any) => {

@@ -1,4 +1,4 @@
-// Daemon lifecycle + Browser Use cloud helpers. TypeScript port of admin.py (#1600).
+// Daemon lifecycle + Browser Use cloud helpers. TypeScript since #1600; the Python original was removed in #1604.
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { connect } from "node:net";

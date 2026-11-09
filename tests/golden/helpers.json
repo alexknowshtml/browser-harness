@@ -1,0 +1,315 @@
+{
+ "out": [
+  [
+   "list_tabs",
+   [
+    {
+     "targetId": "T00000001",
+     "title": "Example Domain",
+     "url": "https://example.com/"
+    },
+    {
+     "targetId": "T00000002",
+     "title": "New Tab",
+     "url": "chrome://newtab/"
+    }
+   ]
+  ],
+  [
+   "list_tabs no chrome",
+   [
+    {
+     "targetId": "T00000001",
+     "title": "Example Domain",
+     "url": "https://example.com/"
+    }
+   ]
+  ],
+  [
+   "current_tab",
+   {
+    "targetId": "browser",
+    "url": "",
+    "title": ""
+   }
+  ],
+  [
+   "page_info",
+   {
+    "url": "https://example.com/",
+    "title": "Example Domain",
+    "w": 1280,
+    "h": 720,
+    "sx": 0,
+    "sy": 0,
+    "pw": 1280,
+    "ph": 2000
+   }
+  ],
+  [
+   "new_tab",
+   "T00000004"
+  ],
+  [
+   "page_info after new_tab",
+   {
+    "url": "https://www.example.com/a",
+    "title": "🟢 https://www.example.com/a",
+    "w": 1280,
+    "h": 720,
+    "sx": 0,
+    "sy": 0,
+    "pw": 1280,
+    "ph": 2000
+   }
+  ],
+  [
+   "goto",
+   {
+    "frameId": "F1",
+    "loaderId": "L1"
+   }
+  ],
+  [
+   "click",
+   null
+  ],
+  [
+   "click right double",
+   null
+  ],
+  [
+   "type_text",
+   null
+  ],
+  [
+   "press_key Enter",
+   null
+  ],
+  [
+   "press_key Tab",
+   null
+  ],
+  [
+   "press_key a",
+   null
+  ],
+  [
+   "press_key Z",
+   null
+  ],
+  [
+   "press_key é",
+   null
+  ],
+  [
+   "press_key F5",
+   null
+  ],
+  [
+   "press_key  ",
+   null
+  ],
+  [
+   "press_key ArrowDown",
+   null
+  ],
+  [
+   "press_key mod",
+   null
+  ],
+  [
+   "scroll",
+   null
+  ],
+  [
+   "scroll dx",
+   null
+  ],
+  [
+   "screenshot",
+   "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da636460f85f0f0002870180eb47ba920000000049454e44ae426082"
+  ],
+  [
+   "js",
+   "complete"
+  ],
+  [
+   "js float",
+   1
+  ],
+  [
+   "wait_for_load",
+   true
+  ],
+  [
+   "dispatch_key",
+   null
+  ],
+  [
+   "dispatch_key a",
+   null
+  ],
+  [
+   "upload_file",
+   null
+  ],
+  [
+   "upload_file list",
+   null
+  ],
+  [
+   "upload_file missing",
+   "ERR:no element for #missing"
+  ],
+  [
+   "iframe_target none",
+   null
+  ],
+  [
+   "drain_events",
+   [
+    "Page.loadEventFired",
+    "Page.loadEventFired"
+   ]
+  ],
+  [
+   "switch back",
+   true
+  ],
+  [
+   "ensure_real_tab",
+   {
+    "targetId": "T00000001",
+    "title": "🟢 Example Domain",
+    "url": "https://example.com/"
+   }
+  ],
+  [
+   "temp_tab",
+   "https://example.com/tmp"
+  ],
+  [
+   "temp_tab closed",
+   false
+  ],
+  [
+   "cdp error",
+   "ERR:{'code': -32601, 'message': \"'Nope.x' wasn't found\"}"
+  ],
+  [
+   "tabs end",
+   [
+    "https://example.com/",
+    "chrome://newtab/",
+    "https://example.net/b"
+   ]
+  ]
+ ],
+ "log": [
+  "{\"method\":\"Target.getTargets\",\"params\":{}}",
+  "{\"method\":\"Target.attachToTarget\",\"params\":{\"targetId\":\"T00000001\",\"flatten\":true}}",
+  "{\"method\":\"Page.enable\",\"params\":{},\"sessionId\":\"S00000003\"}",
+  "{\"method\":\"DOM.enable\",\"params\":{},\"sessionId\":\"S00000003\"}",
+  "{\"method\":\"Runtime.enable\",\"params\":{},\"sessionId\":\"S00000003\"}",
+  "{\"method\":\"Network.enable\",\"params\":{},\"sessionId\":\"S00000003\"}",
+  "{\"method\":\"Target.getTargets\",\"params\":{}}",
+  "{\"method\":\"Target.getTargets\",\"params\":{}}",
+  "{\"method\":\"Target.getTargetInfo\",\"params\":{}}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"JSON.stringify({url:location.href,title:document.title,w:innerWidth,h:innerHeight,sx:scrollX,sy:scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})\",\"returnByValue\":true},\"sessionId\":\"S00000003\"}",
+  "{\"method\":\"Target.createTarget\",\"params\":{\"url\":\"about:blank\"}}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(document.title.startsWith('🟢 '))document.title=document.title.slice(2)\"},\"sessionId\":\"S00000003\"}",
+  "{\"method\":\"Target.activateTarget\",\"params\":{\"targetId\":\"T00000004\"}}",
+  "{\"method\":\"Target.attachToTarget\",\"params\":{\"targetId\":\"T00000004\",\"flatten\":true}}",
+  "{\"method\":\"Page.enable\",\"params\":{},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Page.navigate\",\"params\":{\"url\":\"https://www.example.com/a\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"JSON.stringify({url:location.href,title:document.title,w:innerWidth,h:innerHeight,sx:scrollX,sy:scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})\",\"returnByValue\":true},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Page.navigate\",\"params\":{\"url\":\"https://example.net/b\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchMouseEvent\",\"params\":{\"type\":\"mousePressed\",\"x\":10,\"y\":20,\"button\":\"left\",\"clickCount\":1},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchMouseEvent\",\"params\":{\"type\":\"mouseReleased\",\"x\":10,\"y\":20,\"button\":\"left\",\"clickCount\":1},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchMouseEvent\",\"params\":{\"type\":\"mousePressed\",\"x\":1,\"y\":2,\"button\":\"right\",\"clickCount\":2},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchMouseEvent\",\"params\":{\"type\":\"mouseReleased\",\"x\":1,\"y\":2,\"button\":\"right\",\"clickCount\":2},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.insertText\",\"params\":{\"text\":\"héllo 🟢\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyDown\",\"key\":\"Enter\",\"code\":\"Enter\",\"modifiers\":0,\"windowsVirtualKeyCode\":13,\"nativeVirtualKeyCode\":13,\"text\":\"\\r\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"char\",\"text\":\"\\r\",\"key\":\"Enter\",\"code\":\"Enter\",\"modifiers\":0,\"windowsVirtualKeyCode\":13,\"nativeVirtualKeyCode\":13},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyUp\",\"key\":\"Enter\",\"code\":\"Enter\",\"modifiers\":0,\"windowsVirtualKeyCode\":13,\"nativeVirtualKeyCode\":13},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyDown\",\"key\":\"Tab\",\"code\":\"Tab\",\"modifiers\":0,\"windowsVirtualKeyCode\":9,\"nativeVirtualKeyCode\":9,\"text\":\"\\t\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"char\",\"text\":\"\\t\",\"key\":\"Tab\",\"code\":\"Tab\",\"modifiers\":0,\"windowsVirtualKeyCode\":9,\"nativeVirtualKeyCode\":9},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyUp\",\"key\":\"Tab\",\"code\":\"Tab\",\"modifiers\":0,\"windowsVirtualKeyCode\":9,\"nativeVirtualKeyCode\":9},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyDown\",\"key\":\"a\",\"code\":\"a\",\"modifiers\":0,\"windowsVirtualKeyCode\":97,\"nativeVirtualKeyCode\":97,\"text\":\"a\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"char\",\"text\":\"a\",\"key\":\"a\",\"code\":\"a\",\"modifiers\":0,\"windowsVirtualKeyCode\":97,\"nativeVirtualKeyCode\":97},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyUp\",\"key\":\"a\",\"code\":\"a\",\"modifiers\":0,\"windowsVirtualKeyCode\":97,\"nativeVirtualKeyCode\":97},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyDown\",\"key\":\"Z\",\"code\":\"Z\",\"modifiers\":0,\"windowsVirtualKeyCode\":90,\"nativeVirtualKeyCode\":90,\"text\":\"Z\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"char\",\"text\":\"Z\",\"key\":\"Z\",\"code\":\"Z\",\"modifiers\":0,\"windowsVirtualKeyCode\":90,\"nativeVirtualKeyCode\":90},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyUp\",\"key\":\"Z\",\"code\":\"Z\",\"modifiers\":0,\"windowsVirtualKeyCode\":90,\"nativeVirtualKeyCode\":90},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyDown\",\"key\":\"é\",\"code\":\"é\",\"modifiers\":0,\"windowsVirtualKeyCode\":233,\"nativeVirtualKeyCode\":233,\"text\":\"é\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"char\",\"text\":\"é\",\"key\":\"é\",\"code\":\"é\",\"modifiers\":0,\"windowsVirtualKeyCode\":233,\"nativeVirtualKeyCode\":233},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyUp\",\"key\":\"é\",\"code\":\"é\",\"modifiers\":0,\"windowsVirtualKeyCode\":233,\"nativeVirtualKeyCode\":233},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyDown\",\"key\":\"F5\",\"code\":\"F5\",\"modifiers\":0,\"windowsVirtualKeyCode\":0,\"nativeVirtualKeyCode\":0},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyUp\",\"key\":\"F5\",\"code\":\"F5\",\"modifiers\":0,\"windowsVirtualKeyCode\":0,\"nativeVirtualKeyCode\":0},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyDown\",\"key\":\" \",\"code\":\"Space\",\"modifiers\":0,\"windowsVirtualKeyCode\":32,\"nativeVirtualKeyCode\":32,\"text\":\" \"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"char\",\"text\":\" \",\"key\":\" \",\"code\":\"Space\",\"modifiers\":0,\"windowsVirtualKeyCode\":32,\"nativeVirtualKeyCode\":32},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyUp\",\"key\":\" \",\"code\":\"Space\",\"modifiers\":0,\"windowsVirtualKeyCode\":32,\"nativeVirtualKeyCode\":32},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyDown\",\"key\":\"ArrowDown\",\"code\":\"ArrowDown\",\"modifiers\":0,\"windowsVirtualKeyCode\":40,\"nativeVirtualKeyCode\":40},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyUp\",\"key\":\"ArrowDown\",\"code\":\"ArrowDown\",\"modifiers\":0,\"windowsVirtualKeyCode\":40,\"nativeVirtualKeyCode\":40},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyDown\",\"key\":\"a\",\"code\":\"a\",\"modifiers\":10,\"windowsVirtualKeyCode\":97,\"nativeVirtualKeyCode\":97,\"text\":\"a\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"char\",\"text\":\"a\",\"key\":\"a\",\"code\":\"a\",\"modifiers\":10,\"windowsVirtualKeyCode\":97,\"nativeVirtualKeyCode\":97},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchKeyEvent\",\"params\":{\"type\":\"keyUp\",\"key\":\"a\",\"code\":\"a\",\"modifiers\":10,\"windowsVirtualKeyCode\":97,\"nativeVirtualKeyCode\":97},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchMouseEvent\",\"params\":{\"type\":\"mouseWheel\",\"x\":5,\"y\":6,\"deltaX\":0,\"deltaY\":-300},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Input.dispatchMouseEvent\",\"params\":{\"type\":\"mouseWheel\",\"x\":5,\"y\":6,\"deltaX\":-50,\"deltaY\":100},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Page.captureScreenshot\",\"params\":{\"format\":\"png\",\"captureBeyondViewport\":false},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"document.readyState\",\"returnByValue\":true,\"awaitPromise\":true},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"1.0+0\",\"returnByValue\":true,\"awaitPromise\":true},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"document.readyState\",\"returnByValue\":true,\"awaitPromise\":true},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"(()=>{const e=document.querySelector(\\\"#q\\\\\\\"\\\\u00e9\\\");if(e){e.focus();e.dispatchEvent(new KeyboardEvent(\\\"keypress\\\",{key:\\\"Enter\\\",code:\\\"Enter\\\",keyCode:13,which:13,bubbles:true}));}})()\",\"returnByValue\":true,\"awaitPromise\":true},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"(()=>{const e=document.querySelector(\\\"input\\\");if(e){e.focus();e.dispatchEvent(new KeyboardEvent(\\\"keydown\\\",{key:\\\"a\\\",code:\\\"a\\\",keyCode:97,which:97,bubbles:true}));}})()\",\"returnByValue\":true,\"awaitPromise\":true},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"DOM.getDocument\",\"params\":{\"depth\":-1},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"DOM.querySelector\",\"params\":{\"nodeId\":1,\"selector\":\"#f\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"DOM.setFileInputFiles\",\"params\":{\"files\":[\"/tmp/x.txt\"],\"nodeId\":42},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"DOM.getDocument\",\"params\":{\"depth\":-1},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"DOM.querySelector\",\"params\":{\"nodeId\":1,\"selector\":\"#f\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"DOM.setFileInputFiles\",\"params\":{\"files\":[\"/tmp/a\",\"/tmp/b\"],\"nodeId\":42},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"DOM.getDocument\",\"params\":{\"depth\":-1},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"DOM.querySelector\",\"params\":{\"nodeId\":1,\"selector\":\"#missing\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Target.getTargets\",\"params\":{}}",
+  "{\"method\":\"Target.getTargets\",\"params\":{}}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(document.title.startsWith('🟢 '))document.title=document.title.slice(2)\"},\"sessionId\":\"S00000005\"}",
+  "{\"method\":\"Target.activateTarget\",\"params\":{\"targetId\":\"T00000001\"}}",
+  "{\"method\":\"Target.attachToTarget\",\"params\":{\"targetId\":\"T00000001\",\"flatten\":true}}",
+  "{\"method\":\"Page.enable\",\"params\":{},\"sessionId\":\"S00000006\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000006\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000006\"}",
+  "{\"method\":\"Target.getTargets\",\"params\":{}}",
+  "{\"method\":\"Target.getTargetInfo\",\"params\":{}}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(document.title.startsWith('🟢 '))document.title=document.title.slice(2)\"},\"sessionId\":\"S00000006\"}",
+  "{\"method\":\"Target.activateTarget\",\"params\":{\"targetId\":\"T00000001\"}}",
+  "{\"method\":\"Target.attachToTarget\",\"params\":{\"targetId\":\"T00000001\",\"flatten\":true}}",
+  "{\"method\":\"Page.enable\",\"params\":{},\"sessionId\":\"S00000007\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000007\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000007\"}",
+  "{\"method\":\"Target.createTarget\",\"params\":{\"url\":\"about:blank\"}}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(document.title.startsWith('🟢 '))document.title=document.title.slice(2)\"},\"sessionId\":\"S00000007\"}",
+  "{\"method\":\"Target.activateTarget\",\"params\":{\"targetId\":\"T00000008\"}}",
+  "{\"method\":\"Target.attachToTarget\",\"params\":{\"targetId\":\"T00000008\",\"flatten\":true}}",
+  "{\"method\":\"Page.enable\",\"params\":{},\"sessionId\":\"S00000009\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000009\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000009\"}",
+  "{\"method\":\"Page.navigate\",\"params\":{\"url\":\"https://example.com/tmp\"},\"sessionId\":\"S00000009\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"if(!document.title.startsWith('🟢'))document.title='🟢 '+document.title\"},\"sessionId\":\"S00000009\"}",
+  "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"JSON.stringify({url:location.href,title:document.title,w:innerWidth,h:innerHeight,sx:scrollX,sy:scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})\",\"returnByValue\":true},\"sessionId\":\"S00000009\"}",
+  "{\"method\":\"Target.getTargets\",\"params\":{}}",
+  "{\"method\":\"Nope.x\",\"params\":{},\"sessionId\":\"S00000009\"}",
+  "{\"method\":\"Target.getTargets\",\"params\":{}}",
+  "{\"method\":\"Target.attachToTarget\",\"params\":{\"targetId\":\"T00000001\",\"flatten\":true}}",
+  "{\"method\":\"Page.enable\",\"params\":{},\"sessionId\":\"S0000000A\"}",
+  "{\"method\":\"DOM.enable\",\"params\":{},\"sessionId\":\"S0000000A\"}",
+  "{\"method\":\"Runtime.enable\",\"params\":{},\"sessionId\":\"S0000000A\"}",
+  "{\"method\":\"Network.enable\",\"params\":{},\"sessionId\":\"S0000000A\"}",
+  "{\"method\":\"Nope.x\",\"params\":{},\"sessionId\":\"S0000000A\"}",
+  "{\"method\":\"Target.getTargets\",\"params\":{}}"
+ ]
+}

@@ -1,4 +1,4 @@
-// CDP WS holder + Unix socket relay. One daemon per BU_NAME. TypeScript port of daemon.py (#1600).
+// CDP WS holder + Unix socket relay. One daemon per BU_NAME. TypeScript since #1600; the Python original was removed in #1604.
 //
 // Same socket (/tmp/bu-<name>.sock), same one-line JSON protocol, same log/pid files, so the
 // Python helpers and the TS helpers both work against it unchanged. What it adds:

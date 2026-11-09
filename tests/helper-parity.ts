@@ -1,15 +1,15 @@
-// Runs scenario.py (Python helpers -> Python daemon) and scenario.ts (TS helpers -> TS daemon)
-// against two identical mock browsers; compares outputs and the CDP traffic each browser saw.
-// Also runs scenario.py against the TS daemon: today's Python callers on the new daemon (gate 3 offline).
+// Runs scenario.ts (TS helpers -> TS daemon) on a mock browser and compares its outputs and the CDP traffic the
+// browser saw with tests/golden/helpers.json: what scenario.py produced on the Python harness (#1600 gate 2;
+// golden since #1604 removed the Python helpers).
 import { startMockBrowser } from "./mock-browser";
 import { startDaemon, stopDaemon } from "./parity";
 const DIR = import.meta.dir + "/..";
 
-async function run(kind: "py" | "ts", daemon: "py" | "ts", name: string) {
+async function run(name: string) {
   const M = startMockBrowser();
   const ws = `http://127.0.0.1:${M.port}`;
-  const d = await startDaemon(daemon, name, ws);
-  const cmd = kind === "py" ? [`${DIR}/venv/bin/python`, "tests/scenario.py"] : ["bun", "tests/scenario.ts"];
+  const d = await startDaemon(name, ws);
+  const cmd = ["bun", "tests/scenario.ts"];
   // Async spawn: spawnSync would block this process, and the mock browser lives in it.
   const p = Bun.spawn(cmd, { cwd: DIR, env: { ...process.env, BU_NAME: name, BU_CDP_WS: ws }, stdout: "pipe", stderr: "pipe" });
   const kill = setTimeout(() => p.kill(), 60_000);
@@ -17,7 +17,7 @@ async function run(kind: "py" | "ts", daemon: "py" | "ts", name: string) {
   clearTimeout(kill);
   await stopDaemon(name, d);
   M.server.stop(true);
-  if (r.status !== 0) throw new Error(`${kind} scenario failed: ${r.stderr}`);
+  if (r.status !== 0) throw new Error(`scenario failed: ${r.stderr}`);
   // Target/session ids are minted in order by each mock, so they line up across runs.
   return { out: JSON.parse(r.stdout) as any[], log: M.log.map(({ id, ...x }) => JSON.stringify(x)) };
 }
@@ -38,9 +38,6 @@ function compare(label: string, a: { out: any[]; log: string[] }, b: { out: any[
   return fails;
 }
 
-const pyPy = await run("py", "py", "hp1600");
-const tsTs = await run("ts", "ts", "ht1600");
-const pyTs = await run("py", "ts", "hx1600");
-let f = compare("TS helpers+TS daemon vs Python", pyPy, tsTs);
-f += compare("Python helpers on TS daemon vs Python", pyPy, pyTs);
+const golden = JSON.parse(await Bun.file(import.meta.dir + "/golden/helpers.json").text());
+const f = compare("TS helpers+TS daemon vs Python (golden)", golden, await run("ht1600"));
 process.exit(f ? 1 : 0);

@@ -19,7 +19,7 @@ const relay = Bun.listen({
 });
 const call = async (req: any) => JSON.parse(await raw("lr1600", req));
 const title = () => call({ method: "Runtime.evaluate", params: { expression: "document.title", returnByValue: true } });
-const d = await startDaemon("ts", "lr1600", "http://127.0.0.1:29222");
+const d = await startDaemon("lr1600", "http://127.0.0.1:29222");
 const tid = (await call({ method: "Target.createTarget", params: { url: "data:text/html,<title>lr1600</title>" } })).result.targetId;
 const sid = (await call({ method: "Target.attachToTarget", params: { targetId: tid, flatten: true } })).result.sessionId;
 await call({ meta: "set_session", session_id: sid });

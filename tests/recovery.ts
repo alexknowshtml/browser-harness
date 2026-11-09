@@ -14,7 +14,7 @@ const evalTitle = { method: "Runtime.evaluate", params: { expression: "JSON.stri
 // 1. Dropped socket (1011), then the next call: reconnects, same tab, succeeds.
 {
   const M = startMockBrowser();
-  const p = await startDaemon("ts", "rc1600", `http://127.0.0.1:${M.port}`, { BU_PING_INTERVAL: "1", BU_PING_TIMEOUT: "3" });
+  const p = await startDaemon("rc1600", `http://127.0.0.1:${M.port}`, { BU_PING_INTERVAL: "1", BU_PING_TIMEOUT: "3" });
   const work = M.add("https://booking.example/checkout", "page", "Checkout");
   const sid = (await call("rc1600", { method: "Target.attachToTarget", params: { targetId: work.targetId, flatten: true } })).result.sessionId;
   await call("rc1600", { meta: "set_session", session_id: sid });
@@ -78,7 +78,7 @@ const evalTitle = { method: "Runtime.evaluate", params: { expression: "JSON.stri
 {
   const M = startMockBrowser();
   const port = M.port;
-  const p = await startDaemon("ts", "rd1600", `http://127.0.0.1:${port}`);
+  const p = await startDaemon("rd1600", `http://127.0.0.1:${port}`);
   M.server.stop(true);
   await Bun.sleep(300);
   const r = await call("rd1600", evalTitle);
@@ -96,7 +96,7 @@ const evalTitle = { method: "Runtime.evaluate", params: { expression: "JSON.stri
   const blank = M.add("about:blank");
   const first = [...M.targets.values()][0];
   M.frozen.add(first.targetId);
-  const p = await startDaemon("ts", "rf1600", `http://127.0.0.1:${M.port}`);
+  const p = await startDaemon("rf1600", `http://127.0.0.1:${M.port}`);
   const created = M.log.filter((m) => m.method === "Target.createTarget").length;
   const log = await Bun.file("/tmp/bu-rf1600.log").text();
   check(log.includes(`reused about:blank (${blank.targetId})`) && created === 0, "frozen tab: reuses existing blank, creates none", log.split("\n"));

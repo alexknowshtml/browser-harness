@@ -1,0 +1,6 @@
+{
+  "page info": "{\"h\": 720, \"ph\": 2000, \"pw\": 1280, \"sx\": 0, \"sy\": 0, \"title\": \"Example Domain\", \"url\": \"https://example.com/\", \"w\": 1280}\n",
+  "tabs + js": "eval:1+1\nstr\n",
+  "with block": "eval:document.title\nafter\n",
+  "one-liner": "https://example.com/\n"
+}

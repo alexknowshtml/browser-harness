@@ -1,29 +1,27 @@
 // Live gate on real Helium via the 9222 tunnel (#1600). Test BU_NAMEs only; never BU_NAME=default.
-// 1) Python helpers+daemon vs TS helpers+daemon, same live scenario  2) Python helpers on TS daemon
+// Runs the TS live scenario on the TS daemon twice and checks the runs agree and hold no errors. The Python
+// baseline it once compared against (38/38 identical, #1600) went with the Python harness in #1604.
 import { startDaemon, stopDaemon } from "./parity";
 const DIR = import.meta.dir + "/..";
 const CDP = process.env.LIVE_CDP || "http://127.0.0.1:9222";
-async function run(kind: "py" | "ts", daemon: "py" | "ts", name: string) {
-  const d = await startDaemon(daemon, name, CDP);
-  const cmd = kind === "py" ? [`${DIR}/venv/bin/python`, "tests/live_scenario.py"] : ["bun", "tests/live_scenario.ts"];
-  const p = Bun.spawn(cmd, { cwd: DIR, env: { ...process.env, BU_NAME: name, BU_CDP_WS: CDP }, stdout: "pipe", stderr: "pipe" });
+async function run(name: string) {
+  const d = await startDaemon(name, CDP);
+  const p = Bun.spawn(["bun", "tests/live_scenario.ts"], { cwd: DIR, env: { ...process.env, BU_NAME: name, BU_CDP_WS: CDP }, stdout: "pipe", stderr: "pipe" });
   const k = setTimeout(() => p.kill(), 120_000);
   const so = await new Response(p.stdout).text(), se = await new Response(p.stderr).text(), st = await p.exited;
   clearTimeout(k);
   await stopDaemon(name, d);
-  if (st !== 0) throw new Error(`${kind}/${daemon} failed: ${se}`);
+  if (st !== 0) throw new Error(`live scenario failed: ${se}`);
   return JSON.parse(so) as any[];
 }
-const base = await run("py", "py", "lp1600");
+const a = await run("lt1600"), b = await run("lt1604");
+// Steps that exist to check error paths: their error text must match across runs, like everything else.
+const EXPECTED_ERR = new Set(["cdp error", "upload missing"]);
 let fails = 0;
-for (const [label, other] of [["TS helpers+TS daemon", await run("ts", "ts", "lt1600")], ["Python helpers on TS daemon", await run("py", "ts", "lx1600")]] as const) {
-  let f = 0;
-  for (let i = 0; i < base.length; i++) {
-    const a = JSON.stringify(base[i]), b = JSON.stringify(other[i]);
-    if (a !== b) { f++; console.log(`FAIL live ${label}: ${base[i][0]}\n  py: ${a}\n  ts: ${b}`); }
-  }
-  console.log(`${f ? "FAIL" : "PASS"} live ${label}: ${base.length - f}/${base.length} identical to Python`);
-  fails += f;
+for (let i = 0; i < a.length; i++) {
+  const x = JSON.stringify(a[i]), y = JSON.stringify(b[i]);
+  const err = !EXPECTED_ERR.has(a[i][0]) && (/"ERR:/.test(x) || /"ERR:/.test(y));
+  if (x !== y || err) { fails++; console.log(`FAIL live: ${a[i][0]}\n  1: ${x}\n  2: ${y}`); }
 }
-console.log("python baseline:", JSON.stringify(base));
+console.log(`${fails ? "FAIL" : "PASS"} live TS scenario: ${a.length - fails}/${a.length} steps agree, no unexpected errors`);
 process.exit(fails ? 1 : 0);
